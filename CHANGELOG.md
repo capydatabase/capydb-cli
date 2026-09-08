@@ -14,8 +14,10 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   BuildKit 0.33).** `Dockerfile` (the from-source path behind `make docker-build`)
   is now multi-stage with a `# syntax=docker/dockerfile:1` frontend, a read-only
   bind mount of the source instead of `COPY . .`, and BuildKit cache mounts for
-  the module and build caches, so editing a source file no longer re-downloads
-  dependencies. The toolchain runs on `$BUILDPLATFORM` and cross-compiles for
+  the module and build caches. The Go build cache now persists between builds,
+  so editing a source file triggers an incremental recompile rather than a full
+  rebuild, and editing `go.mod` downloads only the modules that actually
+  changed. The toolchain runs on `$BUILDPLATFORM` and cross-compiles for
   `$TARGETPLATFORM` rather than building under emulation, and the runtime stage
   now carries OCI image labels and uses a numeric uid/gid (10001). The version,
   date, commit and `builtBy=docker` ldflags are unchanged.

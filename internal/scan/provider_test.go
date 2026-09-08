@@ -22,12 +22,15 @@ func TestClassifyHost(t *testing.T) {
 		"p.abc123.db.postgresbridge.com":                           ProviderCrunchy,
 		"db-postgresql-lon1-123-do-user-1-0.db.ondigitalocean.com": ProviderDigitalO,
 		"dpg-abc123-a.oregon-postgres.render.com":                  ProviderRender,
-		"roundhouse.proxy.rlwy.net":                                ProviderRailway,
-		"pg-123abc-myproject.a.aivencloud.com":                     ProviderAiven,
-		"tenant-abc.db.capydb.dev":                                 ProviderCapyDB,
-		"localhost":                                                ProviderLocal,
-		"postgres":                                                 ProviderLocal,
-		"db.internal.example.com":                                  ProviderOther,
+		"dpg-abc123-a.frankfurt-postgres.render.com":               ProviderRender,
+		// A non-database render.com host must not be claimed as Postgres.
+		"my-web-service.onrender.com":          ProviderOther,
+		"roundhouse.proxy.rlwy.net":            ProviderRailway,
+		"pg-123abc-myproject.a.aivencloud.com": ProviderAiven,
+		"tenant-abc.db.capydb.dev":             ProviderCapyDB,
+		"localhost":                            ProviderLocal,
+		"postgres":                             ProviderLocal,
+		"db.internal.example.com":              ProviderOther,
 	}
 	for host, want := range cases {
 		if got := classifyHost(host); got != want {

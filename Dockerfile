@@ -1,31 +1,78 @@
-FROM golang:1.27.1-alpine AS builder
+# syntax=docker/dockerfile:1
+# ═════════════════════════════════════════════════════════════════════════════
+# capydb CLI — local/dev image.
+#
+#   make docker-build     → capydb:<version>
+#   docker build .
+#
+# Released images are built by GoReleaser from prebuilt binaries using
+# Dockerfile.goreleaser; this file is the from-source path.
+# ═════════════════════════════════════════════════════════════════════════════
 
-WORKDIR /build
+# ── build-time knobs (override with --build-arg) ─────────────────────────────
+ARG BUILD_IMAGE=golang:1.27.1-alpine
+ARG RUNTIME_IMAGE=alpine:3.24
 
-RUN apk add --no-cache ca-certificates tzdata
-
-COPY go.mod go.sum ./
-RUN go mod download
-
-COPY . .
+ARG APP_UID=10001
+ARG APP_GID=10001
 
 ARG BUILD_VERSION=dev
 ARG BUILD_DATE=unknown
 ARG GIT_COMMIT=none
 
-RUN CGO_ENABLED=0 go build -trimpath \
-    -ldflags="-s -w -X main.version=${BUILD_VERSION} -X main.date=${BUILD_DATE} -X main.commit=${GIT_COMMIT} -X main.builtBy=docker" \
-    -o capydb \
-    ./cmd/capydb
+# ─────────────────────────────────────────────────────────────────────────────
+# base — Go toolchain, runs natively on the builder (no QEMU)
+# ─────────────────────────────────────────────────────────────────────────────
+FROM --platform=$BUILDPLATFORM ${BUILD_IMAGE} AS base
+ENV CGO_ENABLED=0 GOFLAGS=-mod=readonly GOTOOLCHAIN=local
+WORKDIR /src
 
-FROM alpine:3.24
+# ─────────────────────────────────────────────────────────────────────────────
+# deps — module download, warmed into a persistent builder cache
+# ─────────────────────────────────────────────────────────────────────────────
+FROM base AS deps
+RUN --mount=type=bind,source=.,target=.,ro \
+    --mount=type=cache,target=/go/pkg/mod,id=gomod \
+    go mod download
 
-RUN apk add --no-cache ca-certificates tzdata
-RUN adduser -D -s /bin/sh capydb
+# ─────────────────────────────────────────────────────────────────────────────
+# build — cross-compile for $TARGETPLATFORM, hand off through /out
+# ─────────────────────────────────────────────────────────────────────────────
+FROM deps AS build
+ARG TARGETOS TARGETARCH
+ARG BUILD_VERSION BUILD_DATE GIT_COMMIT
+RUN --mount=type=bind,source=.,target=.,ro \
+    --mount=type=cache,target=/go/pkg/mod,id=gomod \
+    --mount=type=cache,target=/root/.cache/go-build,id=gobuild-${TARGETOS}-${TARGETARCH} \
+    mkdir -p /out && \
+    GOOS=${TARGETOS} GOARCH=${TARGETARCH} go build -trimpath \
+      -ldflags="-s -w -X main.version=${BUILD_VERSION} -X main.date=${BUILD_DATE} -X main.commit=${GIT_COMMIT} -X main.builtBy=docker" \
+      -o /out/capydb ./cmd/capydb
 
-COPY --from=builder /build/capydb /usr/local/bin/capydb
+# ─────────────────────────────────────────────────────────────────────────────
+# runtime — default target
+#   alpine, not distroless: this image keeps a shell so the CLI stays usable
+#   interactively (`docker run -it --entrypoint sh ...`).
+# ─────────────────────────────────────────────────────────────────────────────
+FROM ${RUNTIME_IMAGE} AS runtime
+ARG APP_UID APP_GID BUILD_VERSION BUILD_DATE GIT_COMMIT
 
-USER capydb
+LABEL org.opencontainers.image.title="capydb" \
+      org.opencontainers.image.description="CapyDB command-line interface" \
+      org.opencontainers.image.version="${BUILD_VERSION}" \
+      org.opencontainers.image.revision="${GIT_COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="https://github.com/capydatabase/capydb-cli" \
+      org.opencontainers.image.licenses="MIT" \
+      org.opencontainers.image.vendor="CapyDB"
+
+RUN apk add --no-cache ca-certificates tzdata \
+  && addgroup -g ${APP_GID} capydb \
+  && adduser -D -u ${APP_UID} -G capydb -s /bin/sh capydb
+
+COPY --from=build --chown=${APP_UID}:${APP_GID} /out/capydb /usr/local/bin/capydb
+
+USER ${APP_UID}:${APP_GID}
 WORKDIR /workspace
 
 ENTRYPOINT ["/usr/local/bin/capydb"]

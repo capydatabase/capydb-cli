@@ -88,7 +88,9 @@ type SourceTable struct {
 	Name   string `json:"name"`
 	// Bytes is the total relation size: heap, indexes, and TOAST.
 	Bytes int64 `json:"bytes"`
-	// Rows is the planner's estimate, never an exact count.
+	// Rows is the planner's estimate, never an exact count. -1 means the table
+	// has never been analysed, so the row count is unknown - which is not the
+	// same as zero.
 	Rows        int64 `json:"rows"`
 	Partitioned bool  `json:"partitioned"`
 }
@@ -135,29 +137,48 @@ func probeInventory(ctx context.Context, conn *sql.Conn, facts *SourceFacts, not
 }
 
 // probeTables sizes every ordinary and partitioned table outside the system and
-// provider-managed schemas. Partitions (relispartition) are excluded from the
-// listing and rolled into their root parent, which pg_total_relation_size
-// already reports inclusively for a partitioned root.
+// provider-managed schemas. Partitions are excluded from the listing and summed
+// into their root parent: a natively partitioned table migrates as one object,
+// and its parts are not separately interesting.
 func probeTables(ctx context.Context, conn *sql.Conn, inventory *SourceInventory) error {
+	// pg_total_relation_size on a partitioned ROOT reports the root's own
+	// (empty) storage, never the partitions'. Without pg_partition_tree a
+	// natively partitioned table sizes at zero, so a database that is mostly
+	// one partitioned table reports as tiny - verified against PG17.
 	rows, err := conn.QueryContext(ctx, `
-		select n.nspname,
-		       c.relname,
-		       pg_total_relation_size(c.oid),
-		       pg_indexes_size(c.oid),
-		       coalesce(pg_total_relation_size(c.reltoastrelid), 0),
-		       greatest(c.reltuples, 0)::bigint,
-		       c.relkind = 'p',
+		with roots as (
+			select c.oid, n.nspname, c.relname, c.relkind, c.reltuples, c.reltoastrelid
+			from pg_catalog.pg_class c
+			join pg_catalog.pg_namespace n on n.oid = c.relnamespace
+			where c.relkind in ('r', 'p')
+			  and not c.relispartition
+			  and n.nspname not in (`+quotedSchemaList()+`, 'pg_catalog', 'information_schema')
+			  and n.nspname not like 'pg\_%'
+		)
+		select r.nspname,
+		       r.relname,
+		       case when r.relkind = 'p'
+		            then (select coalesce(sum(pg_total_relation_size(p.relid)), 0)
+		                  from pg_catalog.pg_partition_tree(r.oid) p)
+		            else pg_total_relation_size(r.oid) end,
+		       case when r.relkind = 'p'
+		            then (select coalesce(sum(pg_indexes_size(p.relid)), 0)
+		                  from pg_catalog.pg_partition_tree(r.oid) p)
+		            else pg_indexes_size(r.oid) end,
+		       coalesce(pg_total_relation_size(r.reltoastrelid), 0),
+		       case when r.relkind = 'p'
+		            then (select coalesce(sum(nullif(c.reltuples, -1)), -1)
+		                  from pg_catalog.pg_partition_tree(r.oid) p
+		                  join pg_catalog.pg_class c on c.oid = p.relid
+		                  where p.isleaf)
+		            else r.reltuples end::bigint,
+		       r.relkind = 'p',
 		       exists (
 		           select 1 from pg_catalog.pg_index i
-		           where i.indrelid = c.oid and i.indisprimary
+		           where i.indrelid = r.oid and i.indisprimary
 		       )
-		from pg_catalog.pg_class c
-		join pg_catalog.pg_namespace n on n.oid = c.relnamespace
-		where c.relkind in ('r', 'p')
-		  and not c.relispartition
-		  and n.nspname not in (`+quotedSchemaList()+`, 'pg_catalog', 'information_schema')
-		  and n.nspname not like 'pg\_%'
-		order by pg_total_relation_size(c.oid) desc`)
+		from roots r
+		order by 3 desc`)
 	if err != nil {
 		return err
 	}
@@ -186,6 +207,9 @@ func probeTables(ctx context.Context, conn *sql.Conn, inventory *SourceInventory
 		case table.Bytes > largeTableBytes:
 			inventory.LargeTables++
 		}
+		// reltuples is -1 on a table that has never been ANALYZEd (PG14+), which
+		// is not the same as empty. Counting it as empty told the first run
+		// against a fresh restore that every table was abandoned.
 		if table.Rows == 0 {
 			inventory.EmptyTables++
 		}
@@ -242,6 +266,11 @@ func probeReplicaIdentity(ctx context.Context, conn *sql.Conn, inventory *Source
 // reports everything as unused. That is why the finding is advisory copy
 // ("review"), never a blocker.
 func probeIndexes(ctx context.Context, conn *sql.Conn, inventory *SourceInventory) error {
+	// An index can be both never-scanned and a duplicate of another. Dropping it
+	// reclaims one index's worth of bytes either way, so the duplicate pass
+	// skips whatever the unused pass already counted - otherwise
+	// ReclaimableBytes promises a saving that does not exist.
+	unused := map[string]bool{}
 	rows, err := conn.QueryContext(ctx, `
 		select s.schemaname, s.relname, s.indexrelname, pg_relation_size(s.indexrelid)
 		from pg_catalog.pg_stat_user_indexes s
@@ -261,6 +290,7 @@ func probeIndexes(ctx context.Context, conn *sql.Conn, inventory *SourceInventor
 			return err
 		}
 		inventory.UnusedIndexBytes += index.Bytes
+		unused[index.Schema+"."+index.Name] = true
 		if len(inventory.UnusedIndexes) < maxListedIndexes {
 			inventory.UnusedIndexes = append(inventory.UnusedIndexes, index)
 		}
@@ -302,7 +332,9 @@ func probeIndexes(ctx context.Context, conn *sql.Conn, inventory *SourceInventor
 		key := indexKey{index.Schema, index.Table, signature}
 		if first, ok := seen[key]; ok {
 			index.DuplicateOf = first
-			inventory.DuplicateIdxBytes += index.Bytes
+			if !unused[index.Schema+"."+index.Name] {
+				inventory.DuplicateIdxBytes += index.Bytes
+			}
 			if len(inventory.DuplicateIndexes) < maxListedIndexes {
 				inventory.DuplicateIndexes = append(inventory.DuplicateIndexes, index)
 			}

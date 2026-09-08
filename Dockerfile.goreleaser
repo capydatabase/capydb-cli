@@ -1,17 +1,32 @@
-FROM debian:trixie-slim
+# syntax=docker/dockerfile:1
+# ═════════════════════════════════════════════════════════════════════════════
+# Release image for the capydb CLI. Built by GoReleaser (`dockers_v2` in
+# .goreleaser.yaml) from binaries that GoReleaser has already cross-compiled,
+# so there is no build stage here - the context is dist/, and the binary for
+# the requested platform sits at ${TARGETPLATFORM}/capydb.
+#
+# OCI labels are injected by GoReleaser; do not duplicate them here.
+# ═════════════════════════════════════════════════════════════════════════════
+
+ARG RUNTIME_IMAGE=debian:trixie-slim
+ARG APP_UID=10001
+ARG APP_GID=10001
+
+FROM ${RUNTIME_IMAGE}
+ARG APP_UID APP_GID
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     tzdata \
-    && rm -rf /var/lib/apt/lists/*
+  && rm -rf /var/lib/apt/lists/* \
+  && groupadd -g ${APP_GID} capydb \
+  && useradd -r -u ${APP_UID} -g capydb -s /bin/sh -m -d /home/capydb capydb
 
-RUN groupadd -r app && useradd -r -g app app
-
+# GoReleaser resolves ${TARGETPLATFORM} per built platform (linux/amd64, linux/arm64).
 ARG TARGETPLATFORM
-COPY ${TARGETPLATFORM}/capydb /usr/local/bin/capydb
-RUN chmod +x /usr/local/bin/capydb
+COPY --chmod=0755 --chown=${APP_UID}:${APP_GID} ${TARGETPLATFORM}/capydb /usr/local/bin/capydb
 
-USER app
+USER ${APP_UID}:${APP_GID}
 WORKDIR /workspace
 
 ENTRYPOINT ["/usr/local/bin/capydb"]

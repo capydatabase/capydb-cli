@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/capydatabase/capydbclient"
 )
 
 func readySource() *SourceFacts {
@@ -231,4 +233,61 @@ func hasFinding(findings []Finding, id string) bool {
 		}
 	}
 	return false
+}
+
+// A failing preflight check is the authoritative half of the report. It must
+// re-grade the verdict, or the terminal prints "Ready to migrate" directly
+// above a [fail] line.
+func TestAttachPreflightEscalatesTheVerdict(t *testing.T) {
+	assessment := Assess(Report{Source: readySource()}, "test")
+	if assessment.Level != LevelReady {
+		t.Fatalf("precondition: level = %q, want %q", assessment.Level, LevelReady)
+	}
+
+	assessment.AttachPreflight(&capydbclient.ImportPreflightResult{
+		OK: false,
+		Checks: []capydbclient.ImportPreflightCheck{
+			{Name: "extensions_available_on_target", Status: "fail", Detail: "source uses pg_cron"},
+			{Name: "no_provider_auth_policies", Status: "warn", Detail: "12 tables"},
+		},
+	})
+
+	if assessment.Level != LevelAssisted {
+		t.Fatalf("level = %q, want %q after a failing preflight", assessment.Level, LevelAssisted)
+	}
+	if !hasFinding(assessment.Blockers, "preflight_extensions_available_on_target") {
+		t.Fatalf("the failing check must become a blocker, got %+v", assessment.Blockers)
+	}
+	// Warnings already render in the preflight block; duplicating them as
+	// findings would report the same problem twice.
+	if hasFinding(assessment.Warnings, "preflight_no_provider_auth_policies") {
+		t.Fatal("preflight warnings must not be duplicated as findings")
+	}
+}
+
+func TestAttachPreflightWithPassingChecksKeepsTheVerdict(t *testing.T) {
+	assessment := Assess(Report{Source: readySource()}, "test")
+	assessment.AttachPreflight(&capydbclient.ImportPreflightResult{
+		OK:     true,
+		Checks: []capydbclient.ImportPreflightCheck{{Name: "source_size_within_plan", Status: "pass"}},
+	})
+	if assessment.Level != LevelReady {
+		t.Fatalf("a passing preflight must not change the verdict, got %q", assessment.Level)
+	}
+}
+
+// A repo-only scan has not looked at the database. It can still find real
+// blockers, but "nothing to worry about" is not something you can conclude from
+// not having looked - so it must never grade `ready`.
+func TestAssessNeverClearsAnUnverifiedScan(t *testing.T) {
+	assessment := Assess(Report{}, "test")
+	if assessment.Verified {
+		t.Fatal("a scan with no live source must not be marked verified")
+	}
+	if assessment.Level == LevelReady {
+		t.Fatal("an unverified scan must not grade ready")
+	}
+	if !strings.Contains(assessment.Headline, "--source-url") {
+		t.Fatalf("the headline must say how to verify: %q", assessment.Headline)
+	}
 }

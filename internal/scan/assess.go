@@ -65,6 +65,11 @@ type Assessment struct {
 	// Level is one of LevelReady, LevelPlanning, LevelAssisted.
 	Level    string `json:"level"`
 	Headline string `json:"headline"`
+	// Verified reports whether the live database was probed. A repo-only scan
+	// can find real blockers but cannot clear a migration, so it never grades
+	// LevelReady - "nothing to worry about" is not a thing you can conclude
+	// from not having looked.
+	Verified bool `json:"verified"`
 
 	Provider Profile           `json:"provider"`
 	Metrics  AssessmentMetrics `json:"metrics"`
@@ -152,10 +157,42 @@ func Assess(report Report, cliVersion string) Assessment {
 		}
 	}
 
+	assessment.Verified = report.Source != nil
 	assessment.Path = recommendPath(report, assessment.Provider)
-	assessment.Level = gradeLevel(assessment)
-	assessment.Headline = headlineFor(assessment.Level)
+	assessment.regrade()
 	return assessment
+}
+
+// AttachPreflight records the control plane's verdict and re-grades.
+//
+// Re-grading is the point. The preflight is the authoritative half - it
+// simulates the actual restore against the actual target - so a failing
+// restore-plan check must not end up printed underneath a "Ready to migrate"
+// headline. Its failures become blockers; its warnings stay in the preflight
+// block rather than being duplicated as findings.
+func (a *Assessment) AttachPreflight(preflight *capydbclient.ImportPreflightResult) {
+	a.Preflight = preflight
+	if preflight == nil {
+		return
+	}
+	for _, check := range preflight.Checks {
+		if !strings.EqualFold(check.Status, "fail") {
+			continue
+		}
+		a.Blockers = append(a.Blockers, Finding{
+			ID:          "preflight_" + check.Name,
+			Severity:    SeverityBlocker,
+			Title:       "Import preflight: " + check.Name,
+			Detail:      check.Detail,
+			Remediation: "The control plane simulated the restore against your target and this check failed; the import will not succeed until it passes.",
+		})
+	}
+	a.regrade()
+}
+
+func (a *Assessment) regrade() {
+	a.Level = gradeLevel(*a)
+	a.Headline = headlineFor(a.Level, a.Verified)
 }
 
 // resolveProvider prefers what the server said about itself over what the
@@ -520,7 +557,7 @@ func recommendPath(report Report, profile Profile) RecommendedPath {
 		},
 		Commands: []string{
 			"pg_dump -Fc -d \"$OLD_DATABASE_URL\" -f source.dump",
-			"capydb import --project <project> --file source.dump",
+			"capydb import --project <project> --file source.dump --recreate",
 			"capydb doctor",
 		},
 		Downtime: "A window that scales with the size of the database - rehearse it against a preview cell before committing to a date.",
@@ -545,10 +582,12 @@ func recommendPath(report Report, profile Profile) RecommendedPath {
 
 	dump.Unavailable = "The source cannot stream changes as currently configured: " +
 		strings.Join(source.Replication.Blockers, "; ") + "."
-	if profile.LogicalFix != "" {
-		dump.Unavailable += " " + profile.LogicalFix +
-			" Once that is done, re-run this scan and the streaming path becomes available."
+	// The provider's remediation is about server settings, so it only belongs
+	// here when a server setting is actually what is missing.
+	if profile.LogicalFix != "" && source.Replication.NeedsServerConfig() {
+		dump.Unavailable += " " + profile.LogicalFix
 	}
+	dump.Unavailable += " Fix that and re-run this scan; the streaming path becomes available."
 	return dump
 }
 
@@ -563,16 +602,23 @@ func gradeLevel(assessment Assessment) string {
 		return LevelAssisted
 	case len(assessment.Warnings) > 0, assessment.Metrics.LargeTables > 0:
 		return LevelPlanning
+	case !assessment.Verified:
+		// Nothing looked at the database. Findings the repository produced are
+		// still real, but a clean bill of health is not something you can
+		// conclude from not having looked.
+		return LevelPlanning
 	default:
 		return LevelReady
 	}
 }
 
-func headlineFor(level string) string {
-	switch level {
-	case LevelReady:
+func headlineFor(level string, verified bool) string {
+	switch {
+	case level == LevelReady:
 		return "Ready to migrate: nothing here needs a decision before you start."
-	case LevelPlanning:
+	case level == LevelPlanning && !verified:
+		return "Not yet assessed: re-run with --source-url to check the database itself, not just the code."
+	case level == LevelPlanning:
 		return "Migratable with planning: a handful of things are worth settling first."
 	default:
 		return "Worth doing together: this database has blockers that a self-service import will not resolve."
@@ -585,10 +631,19 @@ func largeTableNames(inventory SourceInventory) []string {
 		if table.Bytes <= largeTableBytes {
 			continue
 		}
-		names = append(names, fmt.Sprintf("%s.%s (%s, ~%d rows)",
-			table.Schema, table.Name, humanBytes(table.Bytes), table.Rows))
+		names = append(names, fmt.Sprintf("%s.%s (%s, %s)",
+			table.Schema, table.Name, humanBytes(table.Bytes), rowEstimate(table.Rows)))
 	}
 	return names
+}
+
+// rowEstimate renders a planner row estimate, where -1 means the table has
+// never been analysed rather than "minus one rows".
+func rowEstimate(rows int64) string {
+	if rows < 0 {
+		return "row count unknown"
+	}
+	return fmt.Sprintf("~%d rows", rows)
 }
 
 func orNever(value string) string {

@@ -286,7 +286,13 @@ func classifyHost(host string) string {
 		return ProviderCrunchy
 	case strings.HasSuffix(host, ".db.ondigitalocean.com"):
 		return ProviderDigitalO
-	case strings.HasSuffix(host, "-postgres.render.com") || strings.HasSuffix(host, ".oregon-postgres.render.com"):
+	// Render's external hostnames are region-scoped and the exact suffix is not
+	// documented verbatim, so this matches the two invariants that are: the
+	// `dpg-` instance prefix and the render.com domain. A host this misses
+	// falls through to the generic advice rather than to a wrong provider -
+	// there is no other product on render.com that would take a Postgres URL.
+	case strings.HasSuffix(host, ".render.com") &&
+		(strings.HasPrefix(host, "dpg-") || strings.Contains(host, "-postgres.render.com")):
 		return ProviderRender
 	case strings.HasSuffix(host, ".railway.app") || strings.HasSuffix(host, ".rlwy.net"):
 		return ProviderRailway

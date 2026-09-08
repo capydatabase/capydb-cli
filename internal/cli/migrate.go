@@ -108,7 +108,11 @@ the assessment page at capydb.dev/switch/check.`,
 				if err != nil {
 					return err
 				}
-				assessment.Preflight = preflight
+				// AttachPreflight, not a bare field assignment: the control
+				// plane's failures are blockers and have to re-grade the
+				// verdict, or a failed restore simulation prints underneath a
+				// "Ready to migrate" headline.
+				assessment.AttachPreflight(preflight)
 			}
 
 			if outPath != "" {

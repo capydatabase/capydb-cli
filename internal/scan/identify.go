@@ -206,6 +206,19 @@ func replicationBlockers(replication SourceReplication, inventory SourceInventor
 	return blockers
 }
 
+// NeedsServerConfig reports whether the source is blocked by something only a
+// server setting or a role grant can fix - as opposed to a schema problem the
+// provider's documentation says nothing about. The distinction decides whether
+// a report should quote the provider's remediation at all: telling somebody
+// whose wal_level is already logical to set wal_level=logical reads as a tool
+// that did not look.
+func (r SourceReplication) NeedsServerConfig() bool {
+	return !strings.EqualFold(r.WALLevel, "logical") ||
+		r.MaxReplicationSlots-r.UsedSlots < 1 ||
+		r.MaxWALSenders < 1 ||
+		!r.RoleCanReplicate
+}
+
 // refreshReplicationReadiness re-grades replication once the inventory is in
 // hand, so the primary-key finding participates in the verdict.
 func (f *SourceFacts) refreshReplicationReadiness() {

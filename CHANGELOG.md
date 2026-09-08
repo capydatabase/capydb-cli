@@ -8,6 +8,91 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Changed
+
+- **Both container images were rebuilt on current Docker conventions (Engine 29 /
+  BuildKit 0.33).** `Dockerfile` (the from-source path behind `make docker-build`)
+  is now multi-stage with a `# syntax=docker/dockerfile:1` frontend, a read-only
+  bind mount of the source instead of `COPY . .`, and BuildKit cache mounts for
+  the module and build caches, so editing a source file no longer re-downloads
+  dependencies. The toolchain runs on `$BUILDPLATFORM` and cross-compiles for
+  `$TARGETPLATFORM` rather than building under emulation, and the runtime stage
+  now carries OCI image labels and uses a numeric uid/gid (10001). The version,
+  date, commit and `builtBy=docker` ldflags are unchanged.
+- `Dockerfile.goreleaser` (the published image) collapses its `RUN chmod` layer
+  into `COPY --chmod=0755 --chown=...`, and its `app` user becomes an explicit
+  uid/gid 10001 so `runAsNonRoot` policies can verify it. The
+  `ARG TARGETPLATFORM` / `COPY ${TARGETPLATFORM}/capydb` contract GoReleaser
+  depends on is unchanged, and labels are still injected by GoReleaser rather
+  than duplicated in the file.
+- Added a `.dockerignore`, so `.git/`, local `.env` files, keys and build outputs
+  no longer enter the build context.
+
+### Added
+
+- `capydb migrate scan --out <file>`: writes the whole assessment as a versioned JSON artifact -
+  the graded verdict, the recommended migration path, every finding with its evidence, and the raw
+  scan. Drop it on capydb.dev/switch/check for the same report as a page (parsed in the browser;
+  the file is never uploaded), or gate a migration on it in CI:
+  `capydb migrate scan --source-url "$URL" --output json | jq -e '.assessment.blockers|length==0'`.
+  The grading lives in the CLI rather than in a web page, so the terminal, the JSON and the page
+  cannot disagree about whether a migration is safe.
+
+- `capydb migrate scan --project <ref>`: adds the control plane's import preflight to the
+  assessment. That half is not a rule table - it connects to the source and simulates the actual
+  restore against the actual target, so it reports which extensions get pre-created, which the
+  restore cannot create at all, which event triggers are lost, and which foreign keys a
+  public-schema dump would orphan. A **failing** preflight check becomes a blocker and re-grades the
+  verdict, so a failed restore simulation is never printed underneath a clean bill of health; the
+  scan still exits zero, because `capydb import preflight` is the gate that exits non-zero.
+
+- **Live source identification.** `--source-url` now asks the server which provider runs it, rather
+  than guessing from the hostname - which cannot work for Cloud SQL or AlloyDB (neither publishes a
+  hostname), calls Heroku Postgres an ordinary EC2 instance, and says nothing at all about a source
+  reached through a bastion. Detects Heroku, Aurora, RDS, AlloyDB, Cloud SQL, Azure, Neon,
+  Supabase, Aiven and CapyDB from provider-owned roles, schemas, extensions and GUC namespaces, and
+  reports the signals that decided it. Hostname classification remains for repo-only scans and now
+  also covers PlanetScale, Timescale Cloud, Crunchy Bridge, DigitalOcean, Render, Railway and
+  Aiven.
+
+- **Streaming-import readiness.** The scan measures `wal_level`, the replication-slot budget, WAL
+  senders and whether the connecting role has `REPLICATION`, then says whether `capydb import
+  --follow` can run from this source *as connected* - and, when it cannot, the provider's own
+  remediation (`rds.logical_replication` in an instance vs a cluster parameter group,
+  `cloudsql.logical_decoding`, `alloydb.logical_decoding`, Azure's `wal_level` server parameter,
+  Neon's console toggle). Heroku Postgres is reported as impossible rather than unconfigured: it
+  offers neither logical replication nor superuser, so the migration is a dump and restore.
+
+- **Physical inventory.** Table sizes with partitions summed into their parent, row estimates,
+  index weight, tables over 100 GiB and 500 GiB, tables with no primary key, tables with neither a
+  primary key nor a replica identity (which break a streaming import at the first `UPDATE`, midway
+  through the migration rather than at setup), foreign-key cycles, sequences past 80% of their
+  range, and indexes never scanned or duplicating another. All from catalog and statistics views -
+  no table is read and nothing is counted with `count(*)`.
+
+### Changed
+
+- `capydb migrate scan` prints a graded verdict under the raw scan: a level (`ready` / `planning` /
+  `assisted`), the recommended path with its commands, and findings separated into blockers,
+  warnings and notes by what actually stops a migration. An extension nothing depends on is a note,
+  because the dump drops it; an extension with dependent objects is a blocker, because the schema
+  will not restore. No estimated duration is reported - CapyDB has no measured copy rate for an
+  arbitrary source over an arbitrary network, and a fabricated one is worse than none because
+  people schedule maintenance windows around it.
+
+- `capydbclient` bumped to v1.10.0 (the import preflight's source-provider and
+  replication-readiness fields) and `capyrls` to v1.11.0. The previous `capyrls v1.1.0` requirement
+  was a tag published before the GitHub organisation rename, so its `go.mod` still declares the
+  `capy-base` module path and no build can resolve it - "module declares its path as
+  github.com/capy-base/capyrls". Pre-rename tags cannot be repaired, so the fix is to require one
+  published afterwards. (capyrls v1.11.0 and v1.2.0 are the same commit; v1.11.0 is what
+  `go get @latest` resolves to.)
+
+- A scan run without `--source-url` now grades `planning`, never `ready`. It can still find real
+  blockers in the repository, but "nothing to worry about" is not a conclusion available from not
+  having looked at the database.
+
+
 ### Added
 
 - `capydb advisor index-hygiene` (alias `unused-indexes`): lists indexes the database pays for on

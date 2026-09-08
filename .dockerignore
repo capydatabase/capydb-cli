@@ -1,0 +1,29 @@
+# Build context exclusions.
+
+.git/
+.github/
+.gitignore
+
+# Local secrets and env files (never in the context).
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Build outputs.
+/capydb
+/dist/
+*.test
+coverage.out
+coverage.html
+
+# Docker definitions themselves.
+Dockerfile*
+.dockerignore
+
+# Docs and editor cruft.
+*.md
+.vscode/
+.idea/
+.DS_Store

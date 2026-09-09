@@ -25,6 +25,7 @@ import (
 	"github.com/capydatabase/capydb-cli/internal/gitignore"
 	"github.com/capydatabase/capydb-cli/internal/project"
 	"github.com/capydatabase/capydb-cli/internal/scan"
+	"github.com/capydatabase/capydbclient"
 )
 
 type app struct {
@@ -127,6 +128,7 @@ Exit codes:
 	root.AddCommand(application.newCloudflareCommand())
 	root.AddCommand(application.newConnectionStringCommand())
 	root.AddCommand(application.newCredentialsCommand())
+	root.AddCommand(application.newKVCommand())
 	root.AddCommand(application.newPsqlCommand())
 	root.AddCommand(application.newSQLCommand())
 	root.AddCommand(application.newMetricsCommand())
@@ -838,6 +840,19 @@ func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID 
 	detection := projectDetectionFromConfig(linkConfig)
 	plan := project.BuildEnvPlan(detection, connections.DirectURL, connections.PooledURL)
 	envAbsPath := envTargetPath(a.cwd, linkConfig.AppPath, envPath)
+
+	// Refresh the K/V endpoint when the project has a store. Only the URL: the
+	// token is not recoverable (the control plane keeps its hash), so it is
+	// written once by `capydb kv create --write-env` and left alone here. A
+	// project without a store contributes nothing and says nothing - a line of
+	// output on every pull would be noise.
+	if store, err := client.GetKVStore(ctx, projectID); err == nil {
+		if restURL := strings.TrimSpace(store.Credentials.RestURL); restURL != "" {
+			plan.Vars[kvRestURLVar] = restURL
+		}
+	} else if !capydbclient.IsNotFound(err) {
+		return fmt.Errorf("fetch kv store: %w", err)
+	}
 
 	// forceOverwrite (--overwrite-env) skips the interactive conflict prompt:
 	// a nil resolver overwrites silently, which is what migration/automation

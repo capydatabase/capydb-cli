@@ -56,6 +56,8 @@ type (
 	IndexAdvisorReport                 = capydbclient.IndexAdvisorReport
 	IndexHygieneReport                 = capydbclient.IndexHygieneReport
 	IndexSuggestion                    = capydbclient.IndexSuggestion
+	KVCredentials                      = capydbclient.KVCredentials
+	KVStore                            = capydbclient.KVStore
 	Preview                            = capydbclient.PreviewDatabase
 	ProjectAlert                       = capydbclient.ProjectAlert
 	ProjectAuditEvent                  = capydbclient.ProjectAuditEvent
@@ -1229,4 +1231,92 @@ func (c *Client) do(ctx context.Context, method, path string, payload any, dest 
 // not appear in the URL (e.g. the device-login poll token).
 func (c *Client) doWithHeader(ctx context.Context, method, path string, payload any, dest any, headerKey, headerValue string) error {
 	return c.doer.Do(ctx, method, path, payload, dest, capydbclient.Header{Key: headerKey, Value: headerValue})
+}
+
+// ── K/V stores ───────────────────────────────────────────────────────────────
+
+// ListKVStores returns every K/V store in the organization. The control plane
+// requires an explicit organization for this endpoint - an admin principal has
+// no implicit one - so organizationID is passed through when set.
+func (c *Client) ListKVStores(ctx context.Context, organizationID string) ([]KVStore, error) {
+	path := "/v1/kv"
+	if trimmed := strings.TrimSpace(organizationID); trimmed != "" {
+		path += "?organization_id=" + url.QueryEscape(trimmed)
+	}
+	var response struct {
+		KVStores []KVStore `json:"kv_stores"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &response); err != nil {
+		return nil, err
+	}
+	return response.KVStores, nil
+}
+
+// GetKVStore returns the project's store. A 404 means the project has no store
+// yet, which callers distinguish with capydbclient.IsNotFound.
+func (c *Client) GetKVStore(ctx context.Context, projectID string) (KVStore, error) {
+	var store KVStore
+	if err := c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/kv", nil, &store); err != nil {
+		return KVStore{}, err
+	}
+	return store, nil
+}
+
+// CreateKVStore provisions the project's store. The returned KVStore carries
+// the plaintext token exactly once - only its hash is stored - so the caller
+// must surface it before returning.
+func (c *Client) CreateKVStore(ctx context.Context, projectID string) (KVStore, Job, error) {
+	var response struct {
+		Job     Job     `json:"job"`
+		KVStore KVStore `json:"kv_store"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/kv", map[string]any{}, &response); err != nil {
+		return KVStore{}, Job{}, err
+	}
+	return response.KVStore, response.Job, nil
+}
+
+func (c *Client) DeleteKVStore(ctx context.Context, projectID string) (Job, error) {
+	var response struct {
+		Job Job `json:"job"`
+	}
+	if err := c.do(ctx, http.MethodDelete, "/v1/projects/"+projectID+"/kv", nil, &response); err != nil {
+		return Job{}, err
+	}
+	return response.Job, nil
+}
+
+// GetKVCredentials returns the endpoints without the secret: the token cannot
+// be read back, so RestToken is empty and TokenRequired is true.
+func (c *Client) GetKVCredentials(ctx context.Context, projectID string) (KVCredentials, error) {
+	var credentials KVCredentials
+	if err := c.do(ctx, http.MethodGet, "/v1/projects/"+projectID+"/kv/credentials", nil, &credentials); err != nil {
+		return KVCredentials{}, err
+	}
+	return credentials, nil
+}
+
+// RotateKVToken mints a new token and stops the old one immediately - there is
+// no grace window. This call is synchronous: the response, not a job, is where
+// the new plaintext lives.
+func (c *Client) RotateKVToken(ctx context.Context, projectID string) (KVStore, error) {
+	var response struct {
+		KVStore KVStore `json:"kv_store"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/kv/rotate-token", nil, &response); err != nil {
+		return KVStore{}, err
+	}
+	return response.KVStore, nil
+}
+
+// FlushKVStore empties the keyspace. The store survives with the same endpoint
+// and token; the data does not, and there is no backup to restore from.
+func (c *Client) FlushKVStore(ctx context.Context, projectID string) (Job, error) {
+	var response struct {
+		Job Job `json:"job"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/kv/flush", nil, &response); err != nil {
+		return Job{}, err
+	}
+	return response.Job, nil
 }

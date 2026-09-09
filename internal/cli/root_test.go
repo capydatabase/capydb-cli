@@ -68,6 +68,10 @@ func TestCreateCommandWritesEnvAndProjectConfig(t *testing.T) {
 					"state":               "ready",
 				},
 			})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/projects/"+projectID+"/kv":
+			// A project without a K/V store: `env pull` must skip it silently.
+			w.WriteHeader(http.StatusNotFound)
+			writeJSON(t, w, map[string]any{"error": "kv store not found"})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/projects/"+projectID+"/connections":
 			writeJSON(t, w, map[string]any{
 				"connections": map[string]any{
@@ -163,6 +167,10 @@ func TestEnvPullRefreshesExistingEnvFile(t *testing.T) {
 					"state":           "ready",
 				},
 			})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/projects/"+projectID+"/kv":
+			// A project without a K/V store: `env pull` must skip it silently.
+			w.WriteHeader(http.StatusNotFound)
+			writeJSON(t, w, map[string]any{"error": "kv store not found"})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/projects/"+projectID+"/connections":
 			writeJSON(t, w, map[string]any{
 				"connections": map[string]any{
@@ -640,6 +648,10 @@ func TestLinkCommandDetectsNestedAppAndResolvesProjectByName(t *testing.T) {
 					"state":           "ready",
 				},
 			})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/projects/"+projectID+"/kv":
+			// A project without a K/V store: `env pull` must skip it silently.
+			w.WriteHeader(http.StatusNotFound)
+			writeJSON(t, w, map[string]any{"error": "kv store not found"})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/projects/"+projectID+"/connections":
 			writeJSON(t, w, map[string]any{
 				"connections": map[string]any{

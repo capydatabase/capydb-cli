@@ -8,6 +8,34 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Added
+
+- **`capydb kv`** - the project's K/V store (CapyDB Knight/Valkyrie: key-value and
+  rate limiting). `status` shows the store (and says so plainly when there is
+  none, rather than failing); `create` provisions it; `credentials` prints the
+  endpoints; `rotate-token` mints a new token; `flush` empties the keyspace;
+  `delete` removes the store. `create`, `flush` and `delete` queue jobs and take
+  `--wait`; `rotate-token` is synchronous, because the response is the only place
+  the new plaintext exists.
+
+  `create` and `rotate-token` are the only chance to capture the token - only
+  its SHA-256 hash is stored, so it can be replaced but never recovered - and
+  accept `--write-env` to merge `CAPYDB_KV_REST_URL` and `CAPYDB_KV_REST_TOKEN`
+  into the project's env file through the same upsert every other credential
+  write uses. With `--write-env` the token is written there and not also echoed
+  into the terminal, so text output leaves no second copy in scrollback;
+  `--output json` still carries it, because that document is what the caller
+  parses.
+  `credentials` deliberately cannot show the token: it explains why and points at
+  `rotate-token` instead of returning a password-free RESP URL that would look
+  like a working credential. `flush`, `delete` and `rotate-token` are irreversible
+  and a K/V store has no backup, so each refuses to run unconfirmed.
+
+- `capydb env pull` now refreshes `CAPYDB_KV_REST_URL` when the project has a K/V
+  store, and stays silent when it does not. Only the URL: the token is not
+  recoverable, so it is written once by `capydb kv create --write-env` and left
+  untouched afterwards.
+
 ### Changed
 
 - **Both container images were rebuilt on current Docker conventions (Engine 29 /
@@ -85,8 +113,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 - `capydbclient` bumped to v1.10.0 (the import preflight's source-provider and
   replication-readiness fields) and `capyrls` to v1.11.0. The previous `capyrls v1.1.0` requirement
   was a tag published before the GitHub organisation rename, so its `go.mod` still declares the
-  `capy-base` module path and no build can resolve it - "module declares its path as
-  github.com/capy-base/capyrls". Pre-rename tags cannot be repaired, so the fix is to require one
+  `capydatabase` module path and no build can resolve it - "module declares its path as
+  github.com/capydatabase/capyrls". Pre-rename tags cannot be repaired, so the fix is to require one
   published afterwards. (capyrls v1.11.0 and v1.2.0 are the same commit; v1.11.0 is what
   `go get @latest` resolves to.)
 

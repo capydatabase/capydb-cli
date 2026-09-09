@@ -8,6 +8,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-09
+
 ### Added
 
 - **`capydb kv`** - the project's K/V store (CapyDB Knight/Valkyrie: key-value and
@@ -333,3 +335,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 ### Added
 
 - First release: project linking, `env pull`, preview databases, imports, logs, and studio.
+
+[Unreleased]: https://github.com/capy-base/capydb-cli/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/capy-base/capydb-cli/compare/v1.1.0...v1.2.0
+[1.1.0]: https://github.com/capy-base/capydb-cli/compare/v1.0.0...v1.1.0
+[1.0.0]: https://github.com/capy-base/capydb-cli/releases/tag/v1.0.0

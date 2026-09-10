@@ -8,6 +8,61 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Added
+
+- **`capydb migrate verify-rls`** — proves a migrated policy corpus behaves identically instead of
+  asking you to believe it. Reads every RLS-enabled table as every caller identity you supply,
+  against both the old database and the new one, and diffs the answers. Row counts and denials are
+  both evidence, so errors compare by SQLSTATE: "denied on both sides" is equivalence. Every read
+  runs in its own rolled-back transaction — claims are transaction-local, so the transaction is the
+  identity boundary, and the audit cannot alter the databases it audits.
+
+  Catches the failure this exists for: RLS enabled but `FORCE` forgotten, where the app connects as
+  the owner and every identity silently sees everything. Verified end to end on postgres:17 —
+  `anon: 0 -> 3` on the un-FORCEd target, `IDENTICAL` once fixed, both databases unmodified.
+- **Three RLS risk reports in `capydb migrate scan --source-url`**: FORCE/owner exposure (how many
+  RLS-enabled tables would go inert on a single-credential destination), SECURITY DEFINER functions
+  reaching an RLS table (split by whether they write and whether they swallow errors), and the
+  policy→helper→own-table cycle graph, which is a static error under FORCE RLS. Each of these had to
+  be written by hand during the myroomiev3 migration, and each changed the plan.
+- `capydb projects always-on <on|off>` — keep a database awake instead of pausing it when idle.
+  Production projects default to on.
+
+### Fixed
+
+- **The test suite no longer reads the developer's real environment.** Isolation was opt-in via
+  `isolateUserConfig`, and 11 of 13 tests in `root_test.go` did not opt in — so anyone who exports
+  `CAPYDB_API_KEY` (the normal way to use this CLI) saw six failures locally that CI never sees: the
+  real key reached `httptest` servers as a 401, the "fails without auth" tests found auth, and the
+  login tests reached the network and timed out. The failing set even varied between runs, which read
+  as flakiness rather than a leak. A `TestMain` now clears every `CAPYDB_*` variable for the whole
+  package, so the safe state is the default; a test that wants one set still calls `t.Setenv` and
+  wins. Suite is green across repeated runs.
+
+### Changed
+
+- **`capydb migrate verify-rls --writes` also probes write reachability.** Reads alone cannot see a
+  widened `UPDATE` policy: the battery reports IDENTICAL while the new database lets an identity
+  update rows the old one protected. The probe is `SELECT ... FOR UPDATE`, which additionally
+  applies the UPDATE policy's `USING` clause (verified on postgres:17: a table showing 2 rows to
+  `SELECT` showed 1 under `FOR UPDATE`). It writes nothing and every probe is rolled back, but it
+  does take row locks — hence opt-in, with a warning. Demonstrated end to end: reads report
+  IDENTICAL, `--writes` reports `posts / user_a [write]: 1 -> 2`.
+- **`capydb migrate verify` holds ONE connection for the whole watch** instead of spawning a `psql`
+  process per sample, and no longer needs `psql` on PATH at all. Proven by counting sessions on the
+  server: one, across a five-sample run. The pool is capped at 1 so the check cannot become the
+  leftover connection it is looking for.
+
+- `capydb migrate verify` is now bounded by wall clock rather than a sample count, and prints each
+  sample as it lands. It previously slept `--interval` *and* waited for each query, so a 10-minute
+  watch through a slow pooler took 25 minutes and printed nothing until the end. Ctrl-C now prints
+  the verdict from the samples taken.
+- `capydb create` states the two things about a fresh cell that were otherwise discovered later and
+  expensively: whether it pauses when idle, and that `capydb advisor indexes` needs an extension
+  whose enable **restarts the database** — a cheap decision on an empty cell, a maintenance window
+  once it carries traffic.
+
+
 ## [1.2.0] - 2026-09-09
 
 ### Added

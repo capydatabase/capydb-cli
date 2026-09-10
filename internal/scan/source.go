@@ -111,6 +111,18 @@ type SourceFacts struct {
 	// cross-checking the repo's .rpc() call sites.
 	PublicFunctions []string `json:"public_functions"`
 
+	// RLSExposure separates "RLS enabled" from "RLS applies to the role the app
+	// will connect as" - see rlsgraph.go.
+	RLSExposure SourceRLSExposure `json:"rls_exposure"`
+
+	// DefinerFunctions are SECURITY DEFINER functions reaching an RLS table:
+	// the owner bypass they rely on disappears on a single-credential
+	// destination.
+	DefinerFunctions []SourceDefinerFunction `json:"definer_functions"`
+
+	// PolicyCycles are policies that reach their own table through a helper.
+	PolicyCycles []SourcePolicyCycle `json:"policy_cycles"`
+
 	// Notes records probes that were skipped or failed.
 	Notes []string `json:"notes"`
 }
@@ -178,6 +190,8 @@ func ProbeSource(ctx context.Context, db *sql.DB) (*SourceFacts, error) {
 		PersistedURLColumns: []string{}, ImportArtifactTables: []string{},
 		Extensions: []SourceExtension{}, PublicFunctions: []string{}, Notes: []string{},
 		ProviderSignals: []string{}, Provider: ProviderOther,
+		DefinerFunctions: []SourceDefinerFunction{}, PolicyCycles: []SourcePolicyCycle{},
+		RLSExposure: SourceRLSExposure{Owners: []string{}},
 	}
 	note := func(probe string, err error) {
 		facts.Notes = append(facts.Notes, fmt.Sprintf("%s probe skipped: %s", probe, compactError(err)))
@@ -188,6 +202,12 @@ func ProbeSource(ctx context.Context, db *sql.DB) (*SourceFacts, error) {
 	}
 	if err := probePolicies(ctx, conn, facts); err != nil {
 		note("policies", err)
+	}
+	if err := probeRLSExposure(ctx, conn, facts); err != nil {
+		note("RLS force/owner exposure", err)
+	}
+	if err := probeRLSGraph(ctx, conn, facts); err != nil {
+		note("definer/cycle graph", err)
 	}
 	if err := probeAuthUsers(ctx, conn, facts); err != nil {
 		note("auth.users", err)

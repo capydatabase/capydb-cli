@@ -1,7 +1,7 @@
-github.com/capydatabase/capydbclient v1.11.0 h1:1/N2mFwMh+YydtpTpPkzzk6s8BB3df/x5OwbBB3j9gM=
-github.com/capydatabase/capydbclient v1.11.0/go.mod h1:pWQ8giRXl5CKpYzZ8QN63AuTYY4rimg087RrL8nqy18=
-github.com/capydatabase/capyrls v1.11.1 h1:4/TKjMAP6k3FRfhgxQpeWVVj1d2w2wPW7qYD4xbmBdU=
-github.com/capydatabase/capyrls v1.11.1/go.mod h1:WRAgZeS1yfODj7XFNxbZvxX642CbZqjl1SS2K1LodwA=
+github.com/capydatabase/capydbclient v1.12.0 h1:xPl9SxF0K59DDtHlZVwsej6z6vyeVrDKCabU/SEDNMY=
+github.com/capydatabase/capydbclient v1.12.0/go.mod h1:pWQ8giRXl5CKpYzZ8QN63AuTYY4rimg087RrL8nqy18=
+github.com/capydatabase/capyrls v1.12.0 h1:j415ItyBstr+OIA7+Z1XLXAIIkdiJXAvIa53f2c7Iyw=
+github.com/capydatabase/capyrls v1.12.0/go.mod h1:ucvZkZ5YJSUFnNdedEitnpn0UgBttVZyIwvn9ZYE4xw=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=

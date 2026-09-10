@@ -540,6 +540,7 @@ func (a *app) newCreateCommand() *cobra.Command {
 					return a.printCreateJSONSummary(cmd, detection, createdProject, job)
 				}
 				printLinkSummary(cmd, detection, linkConfig)
+				printCreateNotes(cmd, createdProject)
 				return nil
 			}()
 			if err != nil && a.jsonOutput() {
@@ -1180,6 +1181,23 @@ func printLinkSummary(cmd *cobra.Command, detection project.Detection, linkConfi
 	for _, step := range project.BuildNextSteps(detection) {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "- %s\n", step)
 	}
+}
+
+// printCreateNotes states the two things about a fresh cell that are otherwise
+// discovered later, and expensively: whether it sleeps, and that the index
+// advisor needs an extension whose enable restarts the database. Both are
+// cheap decisions on an empty cell and awkward ones once it carries traffic.
+func printCreateNotes(cmd *cobra.Command, createdProject api.Project) {
+	out := cmd.OutOrStdout()
+	if createdProject.AlwaysOn {
+		_, _ = fmt.Fprintln(out, "- Stays awake: this project will not pause when idle (the default for production).")
+	} else {
+		_, _ = fmt.Fprintln(out, "- Pauses when idle and resumes on the next connection, which costs the first")
+		_, _ = fmt.Fprintln(out, "  caller a short wake. Turn it off with `capydb projects always-on on`.")
+	}
+	_, _ = fmt.Fprintln(out, "- `capydb advisor indexes` needs the pg_qualstats extension, and enabling it")
+	_, _ = fmt.Fprintln(out, "  RESTARTS the database. Do it now if you want it - on a cell carrying traffic")
+	_, _ = fmt.Fprintln(out, "  that becomes a maintenance window.")
 }
 
 func firstNonEmpty(values ...string) string {

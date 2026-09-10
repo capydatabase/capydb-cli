@@ -78,8 +78,50 @@ func (a *app) newProjectsCommand() *cobra.Command {
 	}
 	setEnvironmentCommand.Flags().StringVar(&envProjectRef, "project", "", "Project id, slug, or name")
 
+	var alwaysOnProjectRef string
+	alwaysOnCommand := &cobra.Command{
+		Use:   "always-on <on|off>",
+		Short: "Keep the database awake instead of pausing it when idle",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			var alwaysOn bool
+			switch strings.ToLower(strings.TrimSpace(args[0])) {
+			case "on", "true", "yes":
+				alwaysOn = true
+			case "off", "false", "no":
+				alwaysOn = false
+			default:
+				return usageErrorf("expected on or off")
+			}
+			client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
+			if err != nil {
+				return err
+			}
+			project, err := a.resolveProject(ctx, client, alwaysOnProjectRef)
+			if err != nil {
+				return err
+			}
+			updated, err := client.UpdateProjectAlwaysOn(ctx, project.ID, alwaysOn)
+			if err != nil {
+				return fmt.Errorf("set always-on: %w", err)
+			}
+			if a.jsonOutput() {
+				return printJSON(cmd.OutOrStdout(), map[string]any{"project": updated})
+			}
+			if updated.AlwaysOn {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Project %s stays awake; it will not pause when idle\n", updated.Name)
+			} else {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Project %s pauses when idle and resumes on the next connection\n", updated.Name)
+			}
+			return nil
+		},
+	}
+	alwaysOnCommand.Flags().StringVar(&alwaysOnProjectRef, "project", "", "Project id, slug, or name")
+
 	command.AddCommand(listCommand)
 	command.AddCommand(setEnvironmentCommand)
+	command.AddCommand(alwaysOnCommand)
 	return command
 }
 

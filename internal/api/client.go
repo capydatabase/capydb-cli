@@ -313,6 +313,20 @@ func (c *Client) UpdateProjectEnvironment(ctx context.Context, projectID, enviro
 	return response.Project, nil
 }
 
+// UpdateProjectAlwaysOn exempts a project from the scale-to-zero idle sweep
+// (or returns it to sleeping when idle). Production projects are always-on by
+// default; this is the dial for the exceptions in both directions.
+func (c *Client) UpdateProjectAlwaysOn(ctx context.Context, projectID string, alwaysOn bool) (Project, error) {
+	var response struct {
+		Project Project `json:"project"`
+	}
+	body := map[string]bool{"always_on": alwaysOn}
+	if err := c.do(ctx, http.MethodPatch, "/v1/projects/"+projectID, body, &response); err != nil {
+		return Project{}, err
+	}
+	return response.Project, nil
+}
+
 // ImportFollowCutover finalizes a follow import (drains the stream, transfers
 // ownership, drops the source slot, flips the project live). The API requires
 // an explicit confirm: cutover replaces the project's live database.

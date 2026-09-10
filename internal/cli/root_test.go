@@ -609,11 +609,58 @@ func TestLoginBrowserFlowSavesUserConfig(t *testing.T) {
 // isolateUserConfig redirects os.UserConfigDir into a temp directory so tests
 // never read or clobber the developer's real CLI config. HOME covers macOS
 // (~/Library/Application Support) and XDG_CONFIG_HOME covers Linux.
+// TestMain clears the CapyDB environment for every test in the package.
+//
+// Isolation used to be opt-in via isolateUserConfig, and 11 of 13 tests in this
+// file did not opt in - so a maintainer who exports CAPYDB_API_KEY (the normal
+// way to use this CLI) saw six failures locally that CI never sees: the real
+// key reached httptest servers as a 401, and the "fails without auth" tests
+// found auth. Clearing here makes the safe state the default; a test that wants
+// one of these set still calls t.Setenv and wins.
+func TestMain(m *testing.M) {
+	for _, name := range capydbEnvVars {
+		if err := os.Unsetenv(name); err != nil {
+			panic("unset " + name + ": " + err.Error())
+		}
+	}
+	os.Exit(m.Run())
+}
+
+// capydbEnvVars is every environment variable the CLI reads for credentials or
+// endpoints. Kept complete deliberately: a var missing here leaks the
+// developer's real environment into the tests.
+var capydbEnvVars = []string{
+	"CAPYDB_API_KEY",
+	"CAPYDB_API_URL",
+	"CAPYDB_APP_URL",
+	"CAPYDB_AGENT",
+	"CAPYDB_HTTP_TIMEOUT",
+	"CAPYDB_REPO",
+}
+
+// isolateUserConfig gives the test its own config directory AND an environment
+// with no CapyDB credentials in it.
+//
+// Clearing the environment is not belt-and-braces: a maintainer who exports
+// CAPYDB_API_KEY (the normal way to use this CLI) had six tests fail on their
+// machine and pass in CI, because the real key reached an httptest server as a
+// 401, and the "should fail without auth" tests found auth. A suite that only
+// passes on a clean machine is a suite whose local runs cannot be trusted -
+// which is exactly when you need them.
+//
+// t.Setenv first so the original value is restored at test end, then Unsetenv
+// so the variable is genuinely absent rather than empty.
 func isolateUserConfig(t *testing.T) {
 	t.Helper()
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tempHome, ".config"))
+	for _, name := range capydbEnvVars {
+		t.Setenv(name, "")
+		if err := os.Unsetenv(name); err != nil {
+			t.Fatalf("unset %s: %v", name, err)
+		}
+	}
 }
 
 func TestLinkCommandDetectsNestedAppAndResolvesProjectByName(t *testing.T) {

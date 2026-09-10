@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -31,6 +30,7 @@ func (a *app) newMigrateCommand() *cobra.Command {
 	}
 	command.AddCommand(a.newMigrateScanCommand())
 	command.AddCommand(a.newMigrateVerifyCommand())
+	command.AddCommand(a.newMigrateVerifyRLSCommand())
 	command.AddCommand(a.newMigrateDepsCommand())
 	command.AddCommand(a.newMigrateCodemodCommand())
 	command.AddCommand(a.newMigrateRLSCommand())
@@ -245,6 +245,7 @@ func writeMigrateScanSource(out io.Writer, source *scan.SourceFacts) {
 		_, _ = fmt.Fprintf(out, "  rls policies: %d live - %d direct auth.*, %d%s\n",
 			policies.Total, policies.DirectAuthRefs, policies.ViaHelpers, helperSuffix)
 	}
+	writeMigrateScanRLSRisk(out, source)
 	if users := source.AuthUsers; users != nil {
 		lastSignIn := users.LastSignIn
 		if lastSignIn == "" {
@@ -267,6 +268,68 @@ func writeMigrateScanSource(out io.Writer, source *scan.SourceFacts) {
 	}
 	for _, note := range source.Notes {
 		_, _ = fmt.Fprintf(out, "  note: %s\n", note)
+	}
+}
+
+// writeMigrateScanRLSRisk renders the three checks that answer "what stops
+// working when the app stops connecting as a role that bypasses RLS". Each was
+// hand-written mid-migration on myroomiev3 and each changed the plan.
+func writeMigrateScanRLSRisk(out io.Writer, source *scan.SourceFacts) {
+	exposure := source.RLSExposure
+	if exposure.RLSEnabled > 0 {
+		owner := "unknown"
+		if len(exposure.Owners) == 1 {
+			owner = exposure.Owners[0]
+		} else if len(exposure.Owners) > 1 {
+			owner = fmt.Sprintf("%d owners (%s)", len(exposure.Owners), strings.Join(exposure.Owners, ", "))
+		}
+		_, _ = fmt.Fprintf(out, "  rls force: %d of %d rls-enabled table(s) FORCEd, owner %s\n",
+			exposure.RLSForced, exposure.RLSEnabled, owner)
+		if inert := exposure.InertPolicyRisk(); inert > 0 {
+			_, _ = fmt.Fprintf(out,
+				"    ! %d table(s) have policies that will NOT apply on a single-credential\n"+
+					"      destination: the app connects as the owner, and an owner bypasses row\n"+
+					"      security unless the table is FORCEd. No error is raised - the rows just\n"+
+					"      come back. Convert with --no-service-escape (FORCEs every table) and\n"+
+					"      prove it with a two-user denial test.\n", inert)
+		}
+	}
+
+	if len(source.DefinerFunctions) > 0 {
+		writes, silent := 0, 0
+		for _, fn := range source.DefinerFunctions {
+			if fn.Writes {
+				writes++
+			}
+			if fn.SwallowsErrors {
+				silent++
+			}
+		}
+		_, _ = fmt.Fprintf(out,
+			"  security definer: %d function(s) reach an rls table (%d write, %d swallow errors)\n",
+			len(source.DefinerFunctions), writes, silent)
+		_, _ = fmt.Fprintf(out,
+			"    ! these run as the owner today and rely on the bypass FORCE removes. The\n"+
+				"      writers fail loudly on WITH CHECK; the %d that end in EXCEPTION WHEN\n"+
+				"      OTHERS fail silently. Classify each before estimating.\n", silent)
+	}
+
+	if len(source.PolicyCycles) > 0 {
+		tables := map[string]bool{}
+		for _, cycle := range source.PolicyCycles {
+			tables[cycle.Table] = true
+		}
+		_, _ = fmt.Fprintf(out,
+			"  policy cycles: %d policy/helper pair(s) across %d table(s) reach their own table\n",
+			len(source.PolicyCycles), len(tables))
+		for _, cycle := range source.PolicyCycles {
+			_, _ = fmt.Fprintf(out, "    - %s.%s -> %s() reads %s\n",
+				cycle.Table, cycle.Policy, cycle.Helper, cycle.Table)
+		}
+		_, _ = fmt.Fprintf(out,
+			"    ! under FORCE RLS these are a STATIC error (\"infinite recursion detected in\n"+
+				"      policy\"). Fix: inline the predicate into that table's own policy and keep\n"+
+				"      the helper for the cross-table callers it was written for - no bypass needed.\n")
 	}
 }
 
@@ -385,6 +448,172 @@ var placeholderSecretPattern = regexp.MustCompile(`(?i)^(|replace([-_ ]?me)?.*|c
 // secretKeyPattern selects env keys whose values must be real secrets.
 var secretKeyPattern = regexp.MustCompile(`(?i)(SECRET|PASSWORD|_KEY$|_TOKEN)`)
 
+// newMigrateVerifyRLSCommand proves the converted policy corpus behaves the
+// same as the original, which is the one property nobody can eyeball: 500
+// policies across 170 tables, failing silently as correct-looking rows that
+// belong to someone else.
+func (a *app) newMigrateVerifyRLSCommand() *cobra.Command {
+	var sourceURL, targetURL, contextsPath, tableList string
+	var probeWrites bool
+
+	command := &cobra.Command{
+		Use:   "verify-rls",
+		Short: "Prove the migrated RLS behaves identically: same reads, same identities, both databases",
+		Long: "Reads every RLS-enabled table as every caller identity you supply, against BOTH the old\n" +
+			"database and the new one, and diffs the answers. A row count that matches is evidence; a\n" +
+			"denial that matches is evidence too, so errors are compared by SQLSTATE.\n" +
+			"\n" +
+			"Every read runs in its own transaction and is rolled back - claims are transaction-local,\n" +
+			"so the transaction is the identity boundary, and nothing can alter the databases it audits.\n" +
+			"\n" +
+			"Contexts are a JSON array of the identities your app actually serves:\n" +
+			`  [{"label":"anon","claims":{}},` + "\n" +
+			`   {"label":"user_a","claims":{"sub":"user_123","role":"authenticated"}},` + "\n" +
+			`   {"label":"admin","claims":{"sub":"user_9","role":"authenticated","app_role":"admin"}}]` + "\n" +
+			"\n" +
+			"Include the anonymous caller. It is the context most likely to regress and the one nobody\n" +
+			"tests by logging in.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			out := cmd.OutOrStdout()
+			if strings.TrimSpace(sourceURL) == "" || strings.TrimSpace(targetURL) == "" {
+				return usageErrorf("--source-url and --target-url are both required")
+			}
+			if strings.TrimSpace(contextsPath) == "" {
+				return usageErrorf("--contexts is required: the identities to read as")
+			}
+			raw, err := os.ReadFile(contextsPath)
+			if err != nil {
+				return fmt.Errorf("read contexts: %w", err)
+			}
+			contexts, err := scan.ParseBatteryContexts(raw)
+			if err != nil {
+				return err
+			}
+
+			source, err := sql.Open("pgx", strings.TrimSpace(sourceURL))
+			if err != nil {
+				return fmt.Errorf("open source database: %w", err)
+			}
+			defer func() { _ = source.Close() }()
+			target, err := sql.Open("pgx", strings.TrimSpace(targetURL))
+			if err != nil {
+				return fmt.Errorf("open target database: %w", err)
+			}
+			defer func() { _ = target.Close() }()
+
+			var tables []string
+			if list := strings.TrimSpace(tableList); list != "" {
+				for _, name := range strings.Split(list, ",") {
+					if name = strings.TrimSpace(name); name != "" {
+						tables = append(tables, name)
+					}
+				}
+			} else {
+				// Discover from the TARGET: it is the database whose policies
+				// are under test, and a table missing there is itself a finding.
+				tables, err = scan.ListRLSTables(ctx, target)
+				if err != nil {
+					return fmt.Errorf("list rls tables on target: %w", err)
+				}
+			}
+			if len(tables) == 0 {
+				return fmt.Errorf("no RLS-enabled tables found: pass --tables, or check that the bundle was applied")
+			}
+
+			modes := 1
+			if probeWrites {
+				modes = 2
+				_, _ = fmt.Fprintln(out,
+					"write probes ON: each table is also read FOR UPDATE, which applies the UPDATE\n"+
+						"policy's USING clause. Nothing is written and every probe is rolled back, but it\n"+
+						"does take row locks for the life of each probe - avoid it on a busy production source.")
+			}
+			_, _ = fmt.Fprintf(out, "battery: %d table(s) x %d context(s) x %d mode(s) = %d checks per side\n",
+				len(tables), len(contexts), modes, len(tables)*len(contexts)*modes)
+
+			sourceCells, err := scan.RunBattery(ctx, source, contexts, tables, probeWrites)
+			if err != nil {
+				return fmt.Errorf("run battery on source: %w", err)
+			}
+			_, _ = fmt.Fprintln(out, "  source: done")
+			targetCells, err := scan.RunBattery(ctx, target, contexts, tables, probeWrites)
+			if err != nil {
+				return fmt.Errorf("run battery on target: %w", err)
+			}
+			_, _ = fmt.Fprintln(out, "  target: done")
+
+			report := scan.DiffBattery(sourceCells, targetCells)
+			if a.jsonOutput() {
+				return printJSON(out, report)
+			}
+			writeBatteryReport(out, report)
+			if !report.Equivalent() {
+				cmd.SilenceUsage = true
+				return fmt.Errorf("rls behaviour differs in %d check(s)", len(report.Divergences))
+			}
+			return nil
+		},
+	}
+
+	command.Flags().StringVar(&sourceURL, "source-url", "", "The OLD database (read-only)")
+	command.Flags().StringVar(&targetURL, "target-url", "", "The NEW CapyDB database")
+	command.Flags().StringVar(&contextsPath, "contexts", "", "JSON file of caller identities to read as")
+	command.Flags().StringVar(&tableList, "tables", "", "Comma-separated tables (default: every RLS-enabled table on the target)")
+	command.Flags().BoolVar(&probeWrites, "writes", false, "Also probe write reachability (SELECT ... FOR UPDATE; writes nothing, but takes row locks)")
+	return command
+}
+
+// sampleSourceConnections runs one pg_stat_activity sample over the held
+// connection, folding what it finds into leftovers and returning this sample's
+// count.
+func sampleSourceConnections(ctx context.Context, conn *sql.Conn, query string, leftovers map[string]bool) (int, error) {
+	rows, err := conn.QueryContext(ctx, query)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	found := 0
+	for rows.Next() {
+		var connection string
+		if err := rows.Scan(&connection); err != nil {
+			return 0, err
+		}
+		if connection = strings.TrimSpace(connection); connection != "" {
+			leftovers[connection] = true
+			found++
+		}
+	}
+	return found, rows.Err()
+}
+
+func writeBatteryReport(out io.Writer, report scan.BatteryReport) {
+	if report.Equivalent() {
+		_, _ = fmt.Fprintf(out, "\nIDENTICAL: %d checks, every table read the same as every identity on both sides\n",
+			report.Checks)
+		return
+	}
+	if len(report.Divergences) > 0 {
+		_, _ = fmt.Fprintf(out, "\nDIVERGED in %d of %d check(s) (table / context: old -> new):\n",
+			len(report.Divergences), report.Checks)
+		for _, divergence := range report.Divergences {
+			_, _ = fmt.Fprintf(out, "  %s / %s [%s]: %s -> %s\n",
+				divergence.Table, divergence.Context, divergence.Mode, divergence.Source, divergence.Target)
+		}
+		_, _ = fmt.Fprintln(out,
+			"a count that GREW is the dangerous direction - the new policies are letting that identity\n"+
+				"see rows the old ones hid")
+	}
+	for _, table := range report.SourceOnly {
+		_, _ = fmt.Fprintf(out, "  only on the old database: %s\n", table)
+	}
+	for _, table := range report.TargetOnly {
+		_, _ = fmt.Fprintf(out, "  only on the new database: %s\n", table)
+	}
+}
+
 func (a *app) newMigrateVerifyCommand() *cobra.Command {
 	var sourceURL string
 	var watch time.Duration
@@ -400,18 +629,37 @@ It samples pg_stat_activity over the watch window: zero client connections
 is a deployable you missed. Optionally validates env files for placeholder
 secrets (--env-file, repeatable).
 
-Requires psql on PATH; connects only to the URL you pass.`,
+Opens ONE read-only connection for the whole watch and reuses it, so a slow
+pooler costs its connect latency once rather than once per sample. Connects
+only to the URL you pass.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			out := cmd.OutOrStdout()
 			leftovers := map[string]bool{}
 
 			if strings.TrimSpace(sourceURL) != "" {
-				psqlPath, err := exec.LookPath("psql")
+				db, err := sql.Open("pgx", strings.TrimSpace(sourceURL))
 				if err != nil {
-					return fmt.Errorf("psql is required for migrate verify: %w", err)
+					return fmt.Errorf("open source database: %w", err)
 				}
-				samples := max(1, int(watch/interval))
-				_, _ = fmt.Fprintf(out, "watching source pg_stat_activity: %d sample(s) over %s\n", samples, watch)
+				defer func() { _ = db.Close() }()
+				// One connection, held for the whole watch. Each sample used to
+				// be a fresh psql process, so the run cost `watch` plus a connect
+				// per sample; through a slow pooler that turned a 10m watch into
+				// 25m. Capping the pool at 1 also keeps this check from being the
+				// leftover connection it is looking for.
+				db.SetMaxOpenConns(1)
+				db.SetMaxIdleConns(1)
+				conn, err := db.Conn(cmd.Context())
+				if err != nil {
+					return fmt.Errorf("connect to source: %w", err)
+				}
+				defer func() { _ = conn.Close() }()
+				if _, err := conn.ExecContext(cmd.Context(), "SET default_transaction_read_only = on"); err != nil {
+					return fmt.Errorf("prepare read-only session: %w", err)
+				}
+				deadline := time.Now().Add(watch)
+				_, _ = fmt.Fprintf(out, "watching source pg_stat_activity until %s (every %s, Ctrl-C for the verdict so far)\n",
+					watch, interval)
 				// Provider-internal services (Supabase's PostgREST, exporters,
 				// admin roles, pooler auth probes) hold connections on every
 				// project regardless of app consumers - filter them so the
@@ -426,23 +674,46 @@ WHERE pid <> pg_backend_pid() AND backend_type = 'client backend'
   AND COALESCE(application_name,'') NOT IN ('postgres_exporter', 'pg_cron scheduler')
   AND COALESCE(application_name,'') NOT LIKE 'PostgREST%'
   AND COALESCE(application_name,'') NOT LIKE 'Supavisor (auth_query)%'`
-				for sample := range samples {
+				// Bounded by WALL CLOCK, not by a sample count. A sample count
+				// plus a per-sample sleep means the run takes `watch` PLUS the
+				// query time of every sample - through a slow pooler that turned
+				// a 10m watch into 25m of silence.
+				started := time.Now()
+				interrupted := false
+			sampling:
+				for sample := 0; ; sample++ {
 					if sample > 0 {
+						remaining := time.Until(deadline)
+						if remaining <= 0 {
+							break
+						}
+						wait := min(interval, remaining)
 						select {
 						case <-cmd.Context().Done():
-							return cmd.Context().Err()
-						case <-time.After(interval):
+							interrupted = true
+							break sampling
+						case <-time.After(wait):
 						}
 					}
-					output, err := exec.CommandContext(cmd.Context(), psqlPath, sourceURL, "-tAc", query).CombinedOutput()
+					found, err := sampleSourceConnections(cmd.Context(), conn, query, leftovers)
 					if err != nil {
-						return fmt.Errorf("query source pg_stat_activity: %s", strings.TrimSpace(string(output)))
-					}
-					for line := range strings.SplitSeq(strings.TrimSpace(string(output)), "\n") {
-						if line = strings.TrimSpace(line); line != "" {
-							leftovers[line] = true
+						if cmd.Context().Err() != nil {
+							interrupted = true
+							break sampling
 						}
+						return fmt.Errorf("query source pg_stat_activity: %w", err)
 					}
+					// Report each sample as it lands: a watch that prints nothing
+					// for minutes is indistinguishable from a hung one.
+					_, _ = fmt.Fprintf(out, "  t+%-6s %d app connection(s), %d distinct so far\n",
+						time.Since(started).Round(time.Second), found, len(leftovers))
+					if time.Now().After(deadline) {
+						break
+					}
+				}
+				if interrupted {
+					_, _ = fmt.Fprintf(out, "interrupted after %s - verdict below is from the samples taken\n",
+						time.Since(started).Round(time.Second))
 				}
 				if len(leftovers) == 0 {
 					_, _ = fmt.Fprintln(out, "source connections: none - every consumer has moved")

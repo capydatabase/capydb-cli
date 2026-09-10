@@ -8,6 +8,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-09-10
+
 ### Added
 
 - **`capydb migrate verify-rls`** — proves a migrated policy corpus behaves identically instead of
@@ -61,7 +63,6 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   expensively: whether it pauses when idle, and that `capydb advisor indexes` needs an extension
   whose enable **restarts the database** — a cheap decision on an empty cell, a maintenance window
   once it carries traffic.
-
 
 ## [1.2.0] - 2026-09-09
 
@@ -391,7 +392,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 - First release: project linking, `env pull`, preview databases, imports, logs, and studio.
 
-[Unreleased]: https://github.com/capy-base/capydb-cli/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/capy-base/capydb-cli/compare/v1.3.0...HEAD
+[1.3.0]: https://github.com/capy-base/capydb-cli/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/capy-base/capydb-cli/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/capy-base/capydb-cli/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/capy-base/capydb-cli/releases/tag/v1.0.0

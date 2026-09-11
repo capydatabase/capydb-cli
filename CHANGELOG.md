@@ -10,6 +10,10 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ### Added
 
+- **`migrate rls` bundles now carry the FORCE foreign-key warning** (capyrls v1.13.0). Verified in
+  the built binary rather than the build: a generated `capyrls_02_force_rls.sql` contains the
+  `23503` symptom, the parent-only recipe and the note that the owner has no privileged view.
+
 - **`migrate scan --source-url` reports unvalidated foreign keys.** A `NOT VALID` foreign key still
   owes Postgres a validation scan — and on a FORCEd destination that scan is the one thing row
   security applies to. Runtime enforcement and `CHECK` validation are unaffected, but

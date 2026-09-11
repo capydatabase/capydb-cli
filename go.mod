@@ -4,7 +4,7 @@ go 1.27.1
 
 require (
 	github.com/capydatabase/capydbclient v1.12.0
-	github.com/capydatabase/capyrls v1.12.0
+	github.com/capydatabase/capyrls v1.13.0
 	github.com/jackc/pgx/v5 v5.11.0
 	github.com/spf13/cobra v1.10.2
 )

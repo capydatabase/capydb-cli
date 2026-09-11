@@ -8,6 +8,18 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Added
+
+- **`migrate scan --source-url` reports unvalidated foreign keys.** A `NOT VALID` foreign key still
+  owes Postgres a validation scan — and on a FORCEd destination that scan is the one thing row
+  security applies to. Runtime enforcement and `CHECK` validation are unaffected, but
+  `VALIDATE CONSTRAINT` (and `ADD CONSTRAINT ... FOREIGN KEY`) fail with `23503` naming rows that
+  exist and are only invisible, which also means `drizzle-kit push` adding a foreign key later hits
+  it. The preflight names each one with its parent, because the parent is the table that has to lose
+  `FORCE` for the length of the statement. Validate them before the cutover and it never comes up.
+
+## [Unreleased]
+
 ## [1.3.0] - 2026-09-10
 
 ### Added

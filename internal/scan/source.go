@@ -123,6 +123,10 @@ type SourceFacts struct {
 	// PolicyCycles are policies that reach their own table through a helper.
 	PolicyCycles []SourcePolicyCycle `json:"policy_cycles"`
 
+	// ForeignKeyHazards are NOT VALID foreign keys, which cannot be validated
+	// once the destination FORCEs row security on their parent.
+	ForeignKeyHazards []SourceForeignKeyHazard `json:"foreign_key_hazards"`
+
 	// Notes records probes that were skipped or failed.
 	Notes []string `json:"notes"`
 }
@@ -191,7 +195,8 @@ func ProbeSource(ctx context.Context, db *sql.DB) (*SourceFacts, error) {
 		Extensions: []SourceExtension{}, PublicFunctions: []string{}, Notes: []string{},
 		ProviderSignals: []string{}, Provider: ProviderOther,
 		DefinerFunctions: []SourceDefinerFunction{}, PolicyCycles: []SourcePolicyCycle{},
-		RLSExposure: SourceRLSExposure{Owners: []string{}},
+		RLSExposure:       SourceRLSExposure{Owners: []string{}},
+		ForeignKeyHazards: []SourceForeignKeyHazard{},
 	}
 	note := func(probe string, err error) {
 		facts.Notes = append(facts.Notes, fmt.Sprintf("%s probe skipped: %s", probe, compactError(err)))
@@ -208,6 +213,9 @@ func ProbeSource(ctx context.Context, db *sql.DB) (*SourceFacts, error) {
 	}
 	if err := probeRLSGraph(ctx, conn, facts); err != nil {
 		note("definer/cycle graph", err)
+	}
+	if err := probeForeignKeyHazards(ctx, conn, facts); err != nil {
+		note("unvalidated foreign keys", err)
 	}
 	if err := probeAuthUsers(ctx, conn, facts); err != nil {
 		note("auth.users", err)

@@ -91,3 +91,30 @@ func TestInertPolicyRisk(t *testing.T) {
 		t.Fatalf("fully forced corpus must report 0 risk, got %d", got)
 	}
 }
+
+// TestForeignKeyHazardReporting pins the shape the migrate-scan report reads.
+//
+// The finding exists because Postgres applies row security to the scan that
+// validates a FOREIGN KEY while leaving runtime enforcement alone, so a NOT
+// VALID key becomes unvalidatable the moment its parent is FORCEd. The preflight
+// is the only place that can say so while it is still cheap to fix.
+func TestForeignKeyHazardReporting(t *testing.T) {
+	hazards := []SourceForeignKeyHazard{
+		{Table: "public.messages", Constraint: "messages_conversation_fk", Parent: "public.conversations", NotValid: true},
+		{Table: "public.matches", Constraint: "matches_profile_fk", Parent: "public.profiles", NotValid: true},
+	}
+
+	parents := map[string]bool{}
+	for _, hazard := range hazards {
+		if !hazard.NotValid {
+			t.Fatalf("%s was reported despite being validated", hazard.Constraint)
+		}
+		if hazard.Parent == "" {
+			t.Fatalf("%s has no parent; the parent is the table that must lose FORCE", hazard.Constraint)
+		}
+		parents[hazard.Parent] = true
+	}
+	if len(parents) != 2 {
+		t.Fatalf("parents = %d, want 2 - the report counts distinct parents, not keys", len(parents))
+	}
+}

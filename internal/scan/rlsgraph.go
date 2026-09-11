@@ -343,3 +343,64 @@ func probeRLSGraph(ctx context.Context, conn *sql.Conn, facts *SourceFacts) erro
 	facts.PolicyCycles = buildPolicyCycles(policies, routines, rlsTables)
 	return nil
 }
+
+// SourceForeignKeyHazard is a foreign key that will become unmaintainable once
+// the destination FORCEs row security on its parent.
+//
+// FORCE applies policies to the table owner, and Postgres applies them to the
+// scan that validates a FOREIGN KEY - but not to runtime enforcement, and not
+// to CHECK validation (verified on postgres:17.11). So after conversion, as the
+// single connecting role:
+//
+//   - existing keys keep working, and every INSERT/UPDATE is still checked;
+//   - ADDING a foreign key to an existing table fails with 23503, naming rows
+//     that exist and are only invisible;
+//   - VALIDATE CONSTRAINT on a NOT VALID key fails the same way.
+//
+// A key already carrying NOT VALID is the sharp case: it is unvalidated today
+// and cannot be validated after the cutover without dropping FORCE on its
+// parent for the length of the statement. Worth knowing BEFORE the cutover,
+// which is why it is a preflight finding rather than a runbook footnote.
+type SourceForeignKeyHazard struct {
+	Table      string `json:"table"`
+	Constraint string `json:"constraint"`
+	Parent     string `json:"parent"`
+	// NotValid marks a key Postgres has never verified. These are the ones that
+	// must be validated (or dropped) before the parent is FORCEd.
+	NotValid bool `json:"not_valid"`
+}
+
+// probeForeignKeyHazards lists the foreign keys worth naming before a cutover:
+// every NOT VALID one, because those are the keys that still owe a validation
+// scan the destination will refuse to run.
+func probeForeignKeyHazards(ctx context.Context, conn *sql.Conn, facts *SourceFacts) error {
+	rows, err := conn.QueryContext(ctx, `
+		select cn.nspname || '.' || cl.relname,
+		       c.conname,
+		       pn.nspname || '.' || pl.relname,
+		       c.convalidated
+		from pg_catalog.pg_constraint c
+		join pg_catalog.pg_class cl on cl.oid = c.conrelid
+		join pg_catalog.pg_namespace cn on cn.oid = cl.relnamespace
+		join pg_catalog.pg_class pl on pl.oid = c.confrelid
+		join pg_catalog.pg_namespace pn on pn.oid = pl.relnamespace
+		where c.contype = 'f'
+		  and not c.convalidated
+		  and cn.nspname not in (`+quotedSchemaList()+`, 'pg_catalog', 'information_schema')
+		order by 1, 2`)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+
+	for rows.Next() {
+		var hazard SourceForeignKeyHazard
+		var validated bool
+		if err := rows.Scan(&hazard.Table, &hazard.Constraint, &hazard.Parent, &validated); err != nil {
+			return err
+		}
+		hazard.NotValid = !validated
+		facts.ForeignKeyHazards = append(facts.ForeignKeyHazards, hazard)
+	}
+	return rows.Err()
+}

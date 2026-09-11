@@ -331,6 +331,28 @@ func writeMigrateScanRLSRisk(out io.Writer, source *scan.SourceFacts) {
 				"      policy\"). Fix: inline the predicate into that table's own policy and keep\n"+
 				"      the helper for the cross-table callers it was written for - no bypass needed.\n")
 	}
+
+	if len(source.ForeignKeyHazards) > 0 {
+		parents := map[string]bool{}
+		for _, hazard := range source.ForeignKeyHazards {
+			parents[hazard.Parent] = true
+		}
+		_, _ = fmt.Fprintf(out,
+			"  unvalidated foreign keys: %d key(s) across %d parent table(s)\n",
+			len(source.ForeignKeyHazards), len(parents))
+		for _, hazard := range source.ForeignKeyHazards {
+			_, _ = fmt.Fprintf(out, "    - %s.%s -> %s (NOT VALID)\n",
+				hazard.Table, hazard.Constraint, hazard.Parent)
+		}
+		_, _ = fmt.Fprintf(out,
+			"    ! validate these BEFORE the cutover. Postgres applies row security to the\n"+
+				"      scan that validates a foreign key, but not to runtime enforcement, so once\n"+
+				"      the parent is FORCEd this fails with 23503 naming rows that exist and are\n"+
+				"      only invisible. Existing keys and every INSERT/UPDATE keep working; it is\n"+
+				"      ADD CONSTRAINT and VALIDATE CONSTRAINT that stop - which also means\n"+
+				"      drizzle-kit push adding a foreign key later hits it. The bundle's\n"+
+				"      02_force_rls.sql carries the recipe if you need one after the fact.\n")
+	}
 }
 
 // writeAssessment renders the graded verdict under the raw scan. The scan block

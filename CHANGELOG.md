@@ -8,6 +8,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+## [1.4.0] - 2026-09-11
+
 ### Added
 
 - **`migrate rls` bundles now carry the FORCE foreign-key warning** (capyrls v1.13.0). Verified in

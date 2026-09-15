@@ -16,9 +16,15 @@ import (
 // Environment variable names for a K/V store. These are CapyDB's own rather
 // than the `UPSTASH_*` pair, which is why `@upstash/redis`'s `Redis.fromEnv()`
 // does not find them and `@capydb/kv` exists - see capydb-kv/README.md.
+//
+// kvRedisURLVar carries the RESP URL, which embeds the token as its password, so
+// it exists in full only on the create and rotate responses - the same two
+// moments the token itself does - and is written and printed under the same
+// rules.
 const (
-	kvRestURLVar   = "CAPYDB_KV_REST_URL"
-	kvRestTokenVar = "CAPYDB_KV_REST_TOKEN"
+	kvRestURLVar   = "CAPYKV_REST_URL"
+	kvRestTokenVar = "CAPYKV_REST_TOKEN"
+	kvRedisURLVar  = "CAPYKV_REDIS_URL"
 )
 
 func (a *app) newKVCommand() *cobra.Command {
@@ -314,7 +320,7 @@ func (a *app) newKVDeleteCommand() *cobra.Command {
 }
 
 func addKVEnvFlags(command *cobra.Command, writeEnv *bool, envFileOverride *string) {
-	command.Flags().BoolVar(writeEnv, "write-env", false, "Write "+kvRestURLVar+" and "+kvRestTokenVar+" into the linked project's env file")
+	command.Flags().BoolVar(writeEnv, "write-env", false, "Write "+kvRestURLVar+", "+kvRestTokenVar+" and "+kvRedisURLVar+" into the linked project's env file")
 	command.Flags().StringVar(envFileOverride, "env-file", "", "Env file to write when --write-env is set (default: the linked project's env file)")
 }
 
@@ -336,7 +342,7 @@ func (a *app) reportKVSecret(cmd *cobra.Command, store api.KVStore, envTarget, v
 	written := false
 	var writeErr error
 	if envTarget != "" {
-		writeErr = writeKVEnv(envTarget, credentials.RestURL, token)
+		writeErr = writeKVEnv(envTarget, credentials.RestURL, token, credentials.RedisURL)
 		written = writeErr == nil
 	}
 
@@ -357,6 +363,7 @@ func (a *app) reportKVSecret(cmd *cobra.Command, store api.KVStore, envTarget, v
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s=%s\n", kvRestURLVar, credentials.RestURL)
 	if written {
 		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s=<written to %s>\n", kvRestTokenVar, envTarget)
+		_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s=<written to %s>\n", kvRedisURLVar, envTarget)
 		_, _ = fmt.Fprintln(
 			cmd.ErrOrStderr(),
 			"\nThe token was written to the env file and is not printed here. Only its hash is stored, "+
@@ -366,7 +373,7 @@ func (a *app) reportKVSecret(cmd *cobra.Command, store api.KVStore, envTarget, v
 	}
 
 	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s=%s\n", kvRestTokenVar, token)
-	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "redis_url: %s\n", credentials.RedisURL)
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "%s=%s\n", kvRedisURLVar, credentials.RedisURL)
 	_, _ = fmt.Fprintln(
 		cmd.ErrOrStderr(),
 		"\nCopy the token now: only its hash is stored, so it cannot be shown again. If you lose it, rotate for a new one.",
@@ -409,17 +416,22 @@ func (a *app) resolveKVEnvTarget(writeEnv bool, envFileOverride string) (string,
 	return envTargetPath(a.cwd, linkConfig.AppPath, envPath), nil
 }
 
-// writeKVEnv merges the credential pair into the resolved env file, through the
+// writeKVEnv merges the credentials into the resolved env file, through the
 // same envfile.Upsert every other credential write uses, so unrelated keys and
-// comments survive.
-func writeKVEnv(target, restURL, token string) error {
+// comments survive. The RESP URL rides along when the response carried one; it
+// is the token in another shape, so it belongs in the file and not the terminal.
+func writeKVEnv(target, restURL, token, redisURL string) error {
 	if strings.TrimSpace(restURL) == "" || strings.TrimSpace(token) == "" {
 		return fmt.Errorf("--write-env: the response carried no credential pair to write")
 	}
-	return envfile.Upsert(target, map[string]string{
+	values := map[string]string{
 		kvRestURLVar:   restURL,
 		kvRestTokenVar: token,
-	})
+	}
+	if strings.TrimSpace(redisURL) != "" {
+		values[kvRedisURLVar] = redisURL
+	}
+	return envfile.Upsert(target, values)
 }
 
 // confirmKVAction guards the three irreversible K/V operations. Mirrors

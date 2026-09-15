@@ -8,6 +8,22 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Changed
+
+- **K/V environment variables are now `CAPYKV_REST_URL` and `CAPYKV_REST_TOKEN`** (were
+  `CAPYDB_KV_REST_URL` / `CAPYDB_KV_REST_TOKEN` in 1.2.0-1.4.0). `kv create --write-env`,
+  `kv rotate-token --write-env`, `kv credentials` and `env pull` all use the new names; nothing
+  reads the old ones. No store could exist yet - the K/V service has not been deployed - so there is
+  nothing to migrate.
+
+### Added
+
+- **`CAPYKV_REDIS_URL`**, the published name for a K/V store's RESP URL. `kv create` and
+  `kv rotate-token` print it with the token and, with `--write-env`, write it into the env file
+  next to `CAPYKV_REST_URL` / `CAPYKV_REST_TOKEN` instead of printing it, since it carries
+  the token as its password. `kv credentials` still prints the password-free form unlabelled,
+  because that one is not connectable.
+
 ## [1.4.0] - 2026-09-11
 
 ### Added

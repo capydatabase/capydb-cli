@@ -86,7 +86,7 @@ The CLI will:
 - `capydb audit list [--project <ref>] [--limit N]` (project audit events)
 - `capydb api-keys list|create|revoke` (`create` requires `--name` and `--scopes`; `--project` makes the key project-scoped; the plaintext key is shown exactly once)
 - `capydb webhooks list|create|delete|rotate-secret|deliveries` (organization webhook endpoints; signing secrets are shown exactly once)
-- `capydb kv status|create|credentials|rotate-token|flush|delete [--project <ref>]` (the project's K/V store - key-value and rate limiting. `create` and `rotate-token` are the only chance to capture the token - only its hash is stored - and accept `--write-env` to merge `CAPYDB_KV_REST_URL`/`CAPYDB_KV_REST_TOKEN` into the project's env file, in which case the token is written there instead of printed; `credentials` cannot show the token, because only its hash is stored)
+- `capydb kv status|create|credentials|rotate-token|flush|delete [--project <ref>]` (the project's K/V store - key-value and rate limiting. `create` and `rotate-token` are the only chance to capture the token - only its hash is stored - and accept `--write-env` to merge `CAPYKV_REST_URL`, `CAPYKV_REST_TOKEN` and `CAPYKV_REDIS_URL` (the RESP URL, which carries the token as its password) into the project's env file, in which case the token and the RESP URL are written there instead of printed; `credentials` cannot show the token, because only its hash is stored)
 - `capydb completion bash|zsh|fish|powershell` (shell completions; release archives and the Homebrew cask ship pre-generated scripts)
 
 Global flags on every command:

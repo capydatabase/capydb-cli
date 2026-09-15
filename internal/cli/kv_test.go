@@ -100,8 +100,9 @@ func TestKVCreatePrintsTheTokenOnce(t *testing.T) {
 		t.Fatalf("execute kv create: %v\n%s", err, out)
 	}
 	for _, expected := range []string{
-		"CAPYDB_KV_REST_URL=https://kv-app-abc123.db.capydb.dev",
-		"CAPYDB_KV_REST_TOKEN=capy_kv_secret",
+		"CAPYKV_REST_URL=https://kv-app-abc123.db.capydb.dev",
+		"CAPYKV_REST_TOKEN=capy_kv_secret",
+		"CAPYKV_REDIS_URL=rediss://default:capy_kv_secret@kv-app-abc123.db.capydb.dev:6379",
 		"cannot be shown again",
 	} {
 		if !strings.Contains(out, expected) {
@@ -110,7 +111,7 @@ func TestKVCreatePrintsTheTokenOnce(t *testing.T) {
 	}
 }
 
-func TestKVCreateWriteEnvMergesBothKeys(t *testing.T) {
+func TestKVCreateWriteEnvMergesEveryKey(t *testing.T) {
 	projectID := "project_kv"
 	server := kvTestServer(t, projectID, map[string]func(http.ResponseWriter, *http.Request){
 		"POST /v1/projects/" + projectID + "/kv": func(w http.ResponseWriter, _ *http.Request) {
@@ -122,6 +123,7 @@ func TestKVCreateWriteEnvMergesBothKeys(t *testing.T) {
 					"token": "capy_kv_secret",
 					"credentials": map[string]any{
 						"rest_url": "https://kv-app.db.capydb.dev", "rest_token": "capy_kv_secret",
+						"redis_url": "rediss://default:capy_kv_secret@kv-app.db.capydb.dev:6379",
 					},
 				},
 			})
@@ -147,7 +149,7 @@ func TestKVCreateWriteEnvMergesBothKeys(t *testing.T) {
 	if strings.Contains(stdout+stderr, "capy_kv_secret") {
 		t.Fatalf("--write-env echoed the token to the terminal:\n%s%s", stdout, stderr)
 	}
-	if !strings.Contains(stdout, "CAPYDB_KV_REST_URL=https://kv-app.db.capydb.dev") {
+	if !strings.Contains(stdout, "CAPYKV_REST_URL=https://kv-app.db.capydb.dev") {
 		t.Fatalf("--write-env should still print the endpoint:\n%s", stdout)
 	}
 
@@ -158,8 +160,9 @@ func TestKVCreateWriteEnvMergesBothKeys(t *testing.T) {
 	text := string(data)
 	for _, expected := range []string{
 		"EXISTING=keep-me",
-		`CAPYDB_KV_REST_URL="https://kv-app.db.capydb.dev"`,
-		`CAPYDB_KV_REST_TOKEN="capy_kv_secret"`,
+		`CAPYKV_REST_URL="https://kv-app.db.capydb.dev"`,
+		`CAPYKV_REST_TOKEN="capy_kv_secret"`,
+		`CAPYKV_REDIS_URL="rediss://default:capy_kv_secret@kv-app.db.capydb.dev:6379"`,
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("env file missing %q:\n%s", expected, text)
@@ -210,6 +213,7 @@ func TestKVCreatePrintsTheTokenWhenTheEnvWriteFails(t *testing.T) {
 					"token": "capy_kv_secret",
 					"credentials": map[string]any{
 						"rest_url": "https://kv-app.db.capydb.dev", "rest_token": "capy_kv_secret",
+						"redis_url": "rediss://default:capy_kv_secret@kv-app.db.capydb.dev:6379",
 					},
 				},
 			})
@@ -230,7 +234,7 @@ func TestKVCreatePrintsTheTokenWhenTheEnvWriteFails(t *testing.T) {
 	if err == nil {
 		t.Fatalf("a failed env write should surface as an error:\n%s", out)
 	}
-	if !strings.Contains(out, "CAPYDB_KV_REST_TOKEN=capy_kv_secret") {
+	if !strings.Contains(out, "CAPYKV_REST_TOKEN=capy_kv_secret") {
 		t.Fatalf("the token must still reach the operator:\n%s", out)
 	}
 	if !strings.Contains(out, "only copy") {
@@ -264,7 +268,7 @@ func TestKVCredentialsExplainsTheMissingToken(t *testing.T) {
 	if strings.Contains(out, "capy_kv_") {
 		t.Fatalf("credentials output leaked a token:\n%s", out)
 	}
-	for _, expected := range []string{"CAPYDB_KV_REST_URL=", "cannot be read back", "rotate-token"} {
+	for _, expected := range []string{"CAPYKV_REST_URL=", "cannot be read back", "rotate-token"} {
 		if !strings.Contains(out, expected) {
 			t.Fatalf("credentials output missing %q:\n%s", expected, out)
 		}

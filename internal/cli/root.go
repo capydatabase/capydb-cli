@@ -842,9 +842,10 @@ func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID 
 	plan := project.BuildEnvPlan(detection, connections.DirectURL, connections.PooledURL)
 	envAbsPath := envTargetPath(a.cwd, linkConfig.AppPath, envPath)
 
-	// Refresh the K/V endpoint when the project has a store. Only the URL: the
-	// token is not recoverable (the control plane keeps its hash), so it is
-	// written once by `capydb kv create --write-env` and left alone here. A
+	// Refresh the K/V endpoint when the project has a store. Only the REST URL:
+	// the token, and the RESP URL that carries it as its password, are not
+	// recoverable (the control plane keeps the hash), so both are written once
+	// by `capydb kv create --write-env` and left alone here. A
 	// project without a store contributes nothing and says nothing - a line of
 	// output on every pull would be noise.
 	if store, err := client.GetKVStore(ctx, projectID); err == nil {

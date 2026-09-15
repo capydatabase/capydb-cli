@@ -8,6 +8,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+## [1.5.0] - 2026-09-16
+
 ### Changed
 
 - **K/V environment variables are now `CAPYKV_REST_URL` and `CAPYKV_REST_TOKEN`** (were
@@ -39,8 +41,6 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   exist and are only invisible, which also means `drizzle-kit push` adding a foreign key later hits
   it. The preflight names each one with its parent, because the parent is the table that has to lose
   `FORCE` for the length of the statement. Validate them before the cutover and it never comes up.
-
-## [Unreleased]
 
 ## [1.3.0] - 2026-09-10
 

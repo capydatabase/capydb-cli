@@ -8,6 +8,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+## [1.6.0] - 2026-09-22
+
 ### Added
 
 - **`capydb ephemeral create|status|claim`: a throwaway database with no account.** `create` sends no

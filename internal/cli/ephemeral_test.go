@@ -256,6 +256,48 @@ func TestEphemeralStatusExplainsAGoneDatabase(t *testing.T) {
 	}
 }
 
+// Destroy is anonymous like the read: the claim token in the header is the whole credential, and
+// once the API has taken the database the local record goes too, so the next create is not refused.
+func TestEphemeralDestroyIsAnonymousAndForgetsTheRecord(t *testing.T) {
+	isolateUserConfig(t)
+	cwd := t.TempDir()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Authorization"); got != "" {
+			t.Fatalf("destroy request carried a credential: %q", got)
+		}
+		if r.Method != http.MethodDelete || r.URL.Path != "/v1/ephemeral-databases/"+testEphemeralProjectID {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if got := r.Header.Get("X-CapyDB-Claim-Token"); got != testEphemeralToken {
+			t.Fatalf("destroy sent claim token %q", got)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	if err := config.SaveEphemeralState(cwd, config.EphemeralState{
+		APIURL:     server.URL,
+		ClaimToken: testEphemeralToken,
+		ExpiresAt:  time.Now().Add(time.Hour),
+		Name:       "ephemeral-abc",
+		ProjectID:  testEphemeralProjectID,
+	}); err != nil {
+		t.Fatalf("seed ephemeral state: %v", err)
+	}
+
+	output, err := runCommand(t, cwd, "ephemeral", "destroy")
+	if err != nil {
+		t.Fatalf("ephemeral destroy: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "Destroyed ephemeral database ephemeral-abc") {
+		t.Fatalf("unexpected destroy output:\n%s", output)
+	}
+	if _, err := os.Stat(config.EphemeralStatePath(cwd)); !os.IsNotExist(err) {
+		t.Fatalf("ephemeral record must be removed after destroy (stat err: %v)", err)
+	}
+}
+
 // A deployment with the feature off answers the anonymous create with 404. "resource not found"
 // would read as a bug in the CLI; the user needs to hear that the feature is off and what to do.
 func TestEphemeralCreateExplainsADisabledDeployment(t *testing.T) {

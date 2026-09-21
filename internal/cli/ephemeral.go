@@ -46,6 +46,43 @@ func (a *app) newEphemeralCommand() *cobra.Command {
 	command.AddCommand(a.newEphemeralCreateCommand())
 	command.AddCommand(a.newEphemeralStatusCommand())
 	command.AddCommand(a.newEphemeralClaimCommand())
+	command.AddCommand(a.newEphemeralDestroyCommand())
+	return command
+}
+
+func (a *app) newEphemeralDestroyCommand() *cobra.Command {
+	command := &cobra.Command{
+		Use:   "destroy",
+		Short: "Destroy this directory's ephemeral database now instead of waiting for it to expire",
+		Long: "Destroying ends the ephemeral database and its data immediately and frees its slot.\n" +
+			"It needs no account: the claim token recorded for this directory authorizes it.\n" +
+			"A database you already claimed is a project; delete it from the dashboard instead.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			state, err := a.loadEphemeralState()
+			if err != nil {
+				return err
+			}
+			client, err := a.newAPIClient(state.APIURL, "")
+			if err != nil {
+				return err
+			}
+
+			if err := client.DestroyEphemeralDatabase(cmd.Context(), state.ProjectID, state.ClaimToken); err != nil {
+				return ephemeralGoneError(err, state)
+			}
+			// The token has no authority left; keeping the record would only
+			// make the next `create` refuse until the old expiry.
+			if err := config.RemoveEphemeralState(a.cwd); err != nil {
+				return err
+			}
+
+			if a.jsonOutput() {
+				return printJSON(cmd.OutOrStdout(), map[string]any{"destroyed": state.ProjectID})
+			}
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Destroyed ephemeral database %s. Its data is gone.\n", state.Name)
+			return nil
+		},
+	}
 	return command
 }
 

@@ -469,6 +469,14 @@ func (c *Client) GetEphemeralDatabase(ctx context.Context, projectID, claimToken
 	return response, nil
 }
 
+// DestroyEphemeralDatabase ends an unclaimed ephemeral database early. Like
+// the read it is authenticated by the claim token alone; a claimed or expired
+// database is not found.
+func (c *Client) DestroyEphemeralDatabase(ctx context.Context, projectID, claimToken string) error {
+	path := "/v1/ephemeral-databases/" + strings.TrimSpace(projectID)
+	return c.doWithHeader(ctx, http.MethodDelete, path, nil, nil, "X-CapyDB-Claim-Token", strings.TrimSpace(claimToken))
+}
+
 // ClaimEphemeralDatabase attaches an ephemeral database to the authenticated
 // organization and returns the project it became.
 func (c *Client) ClaimEphemeralDatabase(ctx context.Context, projectID, claimToken string) (Project, error) {

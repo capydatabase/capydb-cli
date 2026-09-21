@@ -8,6 +8,14 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Added
+
+- **`capydb ephemeral destroy`**: ends this directory's ephemeral database now instead of at the
+  72-hour mark, and removes the local record so the next `create` is not refused. Anonymous like
+  `status`: the recorded claim token is the credential. A database that was already claimed is a
+  project and is not touched. Needs a control plane that serves
+  `DELETE /v1/ephemeral-databases/{projectID}`.
+
 ## [1.6.0] - 2026-09-22
 
 ### Added

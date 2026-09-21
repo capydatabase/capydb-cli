@@ -121,12 +121,23 @@ homebrew_casks:
       zsh: completions/capydb.zsh
       fish: completions/capydb.fish
     # Unquarantine the binary on install: release artifacts are not notarized.
-    hooks:
-      post:
-        install: |
-          if system_command("/usr/bin/xattr", args: ["-h"]).exit_status == 0
-            system_command "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "#{staged_path}/capydb"]
-          end
+    # This goes through custom_block rather than `hooks.post.install` because
+    # GoReleaser still emits the `postflight` stanza, which Homebrew deprecated
+    # in favour of the declarative `postflight_steps`. Needs Homebrew >= 6.0.12,
+    # which is where the step guards (`on_macos`) and `run`'s `chdir:` landed.
+    # Paths inside a steps block default to the staged path, so `chdir: "."`
+    # lands xattr in the directory holding the binary; do not write
+    # `{{staged_path}}` here - GoReleaser re-renders the generated cask and
+    # would try to expand it as a template action.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr",
+              args: ["-dr", "com.apple.quarantine", "capydb"],
+              chdir: ".",
+              must_succeed: false
+        end
+      end
     skip_upload: "{{ .IsSnapshot }}"
 
 release:

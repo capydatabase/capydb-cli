@@ -21,6 +21,15 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   `.capydb/ephemeral.json` (mode 0600) before anything else can fail, never printed, and deleted once
   spent; `status --claim-url` prints the browser claim link on request. Requires capydbclient 1.13.0.
 
+### Fixed
+
+- **Homebrew no longer warns when it loads the installed cask.** The generated cask used the
+  `postflight` stanza to strip the macOS quarantine attribute from the installed binary, which
+  Homebrew deprecated in favour of the declarative `postflight_steps`; `brew` commands that load
+  installed casks printed `Warning: Calling postflight is deprecated!` and asked the user to report
+  it to the tap. The cask now emits `postflight_steps` instead, with the same effect. The warning
+  clears for users once this release updates the tap.
+
 ## [1.5.0] - 2026-09-16
 
 ### Changed

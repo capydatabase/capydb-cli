@@ -71,6 +71,9 @@ The CLI will:
 - `capydb preview reset`
 - `capydb preview delete`
 - `capydb preview extend <preview-id> --ttl-hours N`
+- `capydb ephemeral create [--name N] [--no-env]` (a throwaway database with **no account and no login**: writes `DATABASE_URL` to the env file, or prints the connection strings with `--no-env`. Destroyed after 72 hours unless claimed. The claim token is kept in the git-ignored `.capydb/ephemeral.json`, mode 0600 - it cannot be recovered)
+- `capydb ephemeral status [--claim-url]` (state and time left; `--claim-url` prints the browser claim link, which embeds the secret token)
+- `capydb ephemeral claim` (keep it: logs in if needed, moves the database into your organization as a normal project, and links the directory. Data and connection strings do not change)
 - `capydb backups list`
 - `capydb backups create`
 - `capydb import` / `capydb import preflight --source-url <url>` (checks size, Postgres version, and extension compatibility before any destructive step)

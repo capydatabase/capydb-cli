@@ -8,6 +8,19 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Added
+
+- **`capydb ephemeral create|status|claim`: a throwaway database with no account.** `create` sends no
+  credential and needs no login: it provisions a real Postgres database, waits for it, and writes
+  `DATABASE_URL` (and the framework's companions) to the env file exactly like `capydb create` - or,
+  with `--no-env`, prints the connection strings instead. The database is destroyed with its data
+  72 hours later unless it is claimed. `claim` logs in if needed, moves it into your organization as
+  a normal project (it stops expiring and gains nightly backups), and links the directory; the data
+  and connection strings do not change, so the app keeps running. The claim token is the database's
+  only credential and cannot be recovered, so it is written to the git-ignored
+  `.capydb/ephemeral.json` (mode 0600) before anything else can fail, never printed, and deleted once
+  spent; `status --claim-url` prints the browser claim link on request. Requires capydbclient 1.13.0.
+
 ## [1.5.0] - 2026-09-16
 
 ### Changed

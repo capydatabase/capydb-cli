@@ -46,6 +46,11 @@ type (
 	CreateImportRequest                = capydbclient.CreateImportRequest
 	CreateRestorePointRequest          = capydbclient.CreateRestorePointRequest
 	CreateRestoreRequest               = capydbclient.CreateRestoreRequest
+	EphemeralDatabase                  = capydbclient.EphemeralDatabase
+	EphemeralDatabaseClaimRequest      = capydbclient.EphemeralDatabaseClaimRequest
+	EphemeralDatabaseCreateRequest     = capydbclient.EphemeralDatabaseCreateRequest
+	EphemeralDatabaseCreated           = capydbclient.EphemeralDatabaseCreated
+	EphemeralDatabaseDetails           = capydbclient.EphemeralDatabaseDetails
 	ExportDownload                     = capydbclient.ExportDownload
 	ImportPreflight                    = capydbclient.ImportPreflightResult
 	ImportPreflightCheck               = capydbclient.ImportPreflightCheck
@@ -439,6 +444,43 @@ func (r *progressReader) Read(p []byte) (int, error) {
 		r.progress(r.sent, r.total)
 	}
 	return n, err
+}
+
+// CreateEphemeralDatabase creates an account-less throwaway database. Like the
+// device-login start, it is meant to be called on a client with no API key: the
+// returned claim token is the database's only credential until it is claimed.
+func (c *Client) CreateEphemeralDatabase(ctx context.Context, request EphemeralDatabaseCreateRequest) (EphemeralDatabaseCreated, error) {
+	var response EphemeralDatabaseCreated
+	if err := c.do(ctx, http.MethodPost, "/v1/ephemeral-databases", request, &response); err != nil {
+		return EphemeralDatabaseCreated{}, err
+	}
+	return response, nil
+}
+
+// GetEphemeralDatabase reads an unclaimed ephemeral database with its claim
+// token. The token travels in a header so it never lands in access logs. A
+// claimed or expired database is not found.
+func (c *Client) GetEphemeralDatabase(ctx context.Context, projectID, claimToken string) (EphemeralDatabaseDetails, error) {
+	var response EphemeralDatabaseDetails
+	path := "/v1/ephemeral-databases/" + strings.TrimSpace(projectID)
+	if err := c.doWithHeader(ctx, http.MethodGet, path, nil, &response, "X-CapyDB-Claim-Token", strings.TrimSpace(claimToken)); err != nil {
+		return EphemeralDatabaseDetails{}, err
+	}
+	return response, nil
+}
+
+// ClaimEphemeralDatabase attaches an ephemeral database to the authenticated
+// organization and returns the project it became.
+func (c *Client) ClaimEphemeralDatabase(ctx context.Context, projectID, claimToken string) (Project, error) {
+	var response struct {
+		Project Project `json:"project"`
+	}
+	path := "/v1/ephemeral-databases/" + strings.TrimSpace(projectID) + "/claim"
+	request := EphemeralDatabaseClaimRequest{ClaimToken: strings.TrimSpace(claimToken)}
+	if err := c.do(ctx, http.MethodPost, path, request, &response); err != nil {
+		return Project{}, err
+	}
+	return response.Project, nil
 }
 
 // CreatePreviewDatabase queues a preview database and returns the created

@@ -39,14 +39,14 @@ func fakeCapysquash(t *testing.T, exitCode int) (argvFile string) {
 	return argvFile
 }
 
-func fakeManagedPgsquash(t *testing.T) (invocations string) {
+func fakeManagedCapysquash(t *testing.T) (invocations string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
 		t.Skip("shell-script fake binary")
 	}
 	dir := t.TempDir()
 	invocations = filepath.Join(dir, "invocations")
-	script := filepath.Join(dir, "pgsquash")
+	script := filepath.Join(dir, "capysquash")
 	body := `#!/bin/sh
 printf '%s\n' "$*" >> '` + invocations + `'
 if [ "$1" = "squash" ]; then
@@ -73,12 +73,12 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 if [ -n "$snapshot" ]; then
-  printf '{"contract_version":"pgsquash.catalog-snapshot.v1","postgresql_version":"17.6","signature":[]}\n' > "$snapshot"
+  printf '{"contract_version":"capysquash.catalog-snapshot.v1","postgresql_version":"17.6","signature":[]}\n' > "$snapshot"
   printf '{"contract_version":"pgsquash.external-validation.v1","success":true,"phase":"snapshot","comparison_valid":false,"has_differences":false,"differences":[]}\n'
   exit 0
 fi
 if [ -n "$against" ]; then
-  printf '{"contract_version":"pgsquash.external-validation.v1","success":true,"phase":"compare","comparison_valid":true,"has_differences":false,"differences":[]}\n'
+  printf '{"contract_version":"capysquash.external-validation.v1","success":true,"phase":"compare","comparison_valid":true,"has_differences":false,"differences":[]}\n'
   exit 0
 fi
 exit 2
@@ -103,7 +103,7 @@ func TestMigrateSquashMissingBinaryExplainsInstall(t *testing.T) {
 	t.Cleanup(func() { capysquashLookPath = previous })
 
 	_, err := runCommand(t, t.TempDir(), "migrate", "squash")
-	if err == nil || !strings.Contains(err.Error(), "go install github.com/capysquash/pgsquash-engine/cmd/pgsquash") {
+	if err == nil || !strings.Contains(err.Error(), "go install github.com/capydatabase/capysquash/cmd/capysquash") {
 		t.Fatalf("expected the install hint, got %v", err)
 	}
 }
@@ -179,7 +179,7 @@ func TestMigrateSquashFindsNestedPrismaMigrations(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(argv), migration) {
-		t.Fatalf("nested Prisma migration was not passed to pgsquash: %s", argv)
+		t.Fatalf("nested Prisma migration was not passed to capysquash: %s", argv)
 	}
 }
 
@@ -206,7 +206,7 @@ func TestMigrateSquashRejectsUnknownWorkflow(t *testing.T) {
 
 func TestMigrateSquashCapyDBValidationEndToEnd(t *testing.T) {
 	t.Setenv("CI", "true")
-	invocations := fakeManagedPgsquash(t)
+	invocations := fakeManagedCapysquash(t)
 	var connectionFetches atomic.Int32
 	var previewDeletes atomic.Int32
 
@@ -290,6 +290,6 @@ func TestMigrateSquashCapyDBValidationEndToEnd(t *testing.T) {
 		t.Fatalf("database credentials were passed on the command line:\n%s", argv)
 	}
 	if !strings.Contains(string(argv), "--safety conservative") || strings.Count(string(argv), "validate-external") != 2 {
-		t.Fatalf("unexpected pgsquash invocations:\n%s", argv)
+		t.Fatalf("unexpected capysquash invocations:\n%s", argv)
 	}
 }

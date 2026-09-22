@@ -19,8 +19,8 @@ import (
 	"github.com/capydatabase/capydb-cli/internal/exitcode"
 )
 
-// `capydb migrate squash` wraps the standalone MIT pgsquash engine
-// (github.com/capysquash/pgsquash-engine) the same way
+// `capydb migrate squash` wraps the standalone MIT capysquash engine
+// (github.com/capydatabase/capysquash) the same way
 // `migrate rls` wraps capyrls: the scan finds the drifted history, this verb
 // points the tool at it. It stays an exec wrapper - the engine parses SQL
 // with pg_query_go (cgo) and this CLI is CGO_ENABLED=0 cross-compiled, so
@@ -31,10 +31,13 @@ import (
 // capysquash flag surface - custom rules, configs and linting are its own job.
 
 const (
-	capysquashInstallHint = "download a pgsquash release from https://github.com/capysquash/pgsquash-engine/releases\n" +
-		"  or: go install github.com/capysquash/pgsquash-engine/cmd/pgsquash@latest (requires a C toolchain)"
-	externalValidationContractVersion = "pgsquash.external-validation.v1"
-	validationDSNEnvironmentVariable  = "PGSQUASH_VALIDATION_DSN"
+	capysquashInstallHint = "download a capysquash release from https://github.com/capydatabase/capysquash/releases\n" +
+		"  or: go install github.com/capydatabase/capysquash/cmd/capysquash@latest (requires a C toolchain)"
+	externalValidationContractVersion = "capysquash.external-validation.v1"
+	// Engine v0.11.0 (the last pgsquash-engine tag) emits this name for the
+	// same contract.
+	legacyExternalValidationContractVersion = "pgsquash.external-validation.v1"
+	validationDSNEnvironmentVariable        = "CAPYSQUASH_VALIDATION_DSN"
 )
 
 func (a *app) newMigrateSquashCommand() *cobra.Command {
@@ -53,7 +56,7 @@ func (a *app) newMigrateSquashCommand() *cobra.Command {
 		Long: "Long migration histories drift from the schema they claim to describe -\n" +
 			"`capydb migrate scan` measures the drift, and the fix before a move is to\n" +
 			"consolidate the history into a clean baseline. This command hands the\n" +
-			"directory to the open-source pgsquash engine (AST-level consolidation with\n" +
+			"directory to the open-source capysquash engine (AST-level consolidation with\n" +
 			"catalog-proven equivalence; Supabase/Drizzle/Prisma aware).\n" +
 			"\n" +
 			"By default it runs the read-only ANALYZE workflow and changes nothing. Pass\n" +
@@ -62,7 +65,7 @@ func (a *app) newMigrateSquashCommand() *cobra.Command {
 			"default. Pass --validation capydb to prove the candidate in one short-lived,\n" +
 			"isolated preview cell without requiring local Docker.\n" +
 			"\n" +
-			"Requires the pgsquash binary on PATH (the legacy capysquash name is also accepted); install with:\n" +
+			"Requires the capysquash binary on PATH (the legacy pgsquash name is also accepted); install with:\n" +
 			"  " + capysquashInstallHint,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -139,7 +142,7 @@ func (a *app) newMigrateSquashCommand() *cobra.Command {
 	return command
 }
 
-type pgsquashExternalValidationResult struct {
+type capysquashExternalValidationResult struct {
 	ContractVersion string   `json:"contract_version"`
 	Success         bool     `json:"success"`
 	Phase           string   `json:"phase"`
@@ -199,7 +202,7 @@ func (a *app) runManagedSquashValidation(
 		"--quiet",
 		"--no-emoji",
 	)
-	if err := runPgsquash(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), binary, generateArgs, ""); err != nil {
+	if err := runCapysquash(cmd.Context(), cmd.OutOrStdout(), cmd.ErrOrStderr(), binary, generateArgs, ""); err != nil {
 		return fmt.Errorf("generate squash candidate: %w", err)
 	}
 
@@ -243,7 +246,7 @@ func (a *app) runManagedSquashValidation(
 	}
 
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Applying original migrations and capturing the catalog")
-	originalResult, err := runPgsquashExternal(
+	originalResult, err := runCapysquashExternal(
 		cmd.Context(), cmd.ErrOrStderr(), binary, migrationsDir, connections.DirectURL,
 		"--snapshot-output", snapshotPath,
 	)
@@ -273,7 +276,7 @@ func (a *app) runManagedSquashValidation(
 	}
 
 	_, _ = fmt.Fprintln(cmd.OutOrStdout(), "Applying the candidate and comparing catalogs")
-	comparison, compareErr := runPgsquashExternal(
+	comparison, compareErr := runCapysquashExternal(
 		cmd.Context(), cmd.ErrOrStderr(), binary, candidateDir, connections.DirectURL,
 		"--against-snapshot", snapshotPath,
 	)
@@ -294,7 +297,7 @@ func (a *app) runManagedSquashValidation(
 	return nil
 }
 
-func runPgsquash(ctx context.Context, stdout, stderr io.Writer, binary string, args []string, dsn string) error {
+func runCapysquash(ctx context.Context, stdout, stderr io.Writer, binary string, args []string, dsn string) error {
 	child := exec.CommandContext(ctx, binary, args...)
 	child.Stdout = stdout
 	child.Stderr = stderr
@@ -307,11 +310,11 @@ func runPgsquash(ctx context.Context, stdout, stderr io.Writer, binary string, a
 	return nil
 }
 
-func runPgsquashExternal(
+func runCapysquashExternal(
 	ctx context.Context,
 	stderr io.Writer,
 	binary, migrationsPath, dsn, modeFlag, snapshotPath string,
-) (pgsquashExternalValidationResult, error) {
+) (capysquashExternalValidationResult, error) {
 	var stdout bytes.Buffer
 	args := []string{
 		"validate-external", migrationsPath,
@@ -323,18 +326,19 @@ func runPgsquashExternal(
 		"--quiet",
 		"--no-emoji",
 	}
-	err := runPgsquash(ctx, &stdout, stderr, binary, args, dsn)
+	err := runCapysquash(ctx, &stdout, stderr, binary, args, dsn)
 
-	var result pgsquashExternalValidationResult
+	var result capysquashExternalValidationResult
 	decodeErr := json.NewDecoder(&stdout).Decode(&result)
 	if decodeErr != nil {
 		if err != nil {
 			return result, err
 		}
-		return result, fmt.Errorf("decode pgsquash validation result: %w", decodeErr)
+		return result, fmt.Errorf("decode capysquash validation result: %w", decodeErr)
 	}
-	if result.ContractVersion != externalValidationContractVersion {
-		return result, fmt.Errorf("unsupported pgsquash validation contract %q", result.ContractVersion)
+	if result.ContractVersion != externalValidationContractVersion &&
+		result.ContractVersion != legacyExternalValidationContractVersion {
+		return result, fmt.Errorf("unsupported capysquash validation contract %q", result.ContractVersion)
 	}
 	if err != nil {
 		if result.Error != "" {

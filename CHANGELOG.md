@@ -16,6 +16,14 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   project and is not touched. Needs a control plane that serves
   `DELETE /v1/ephemeral-databases/{projectID}`.
 
+### Changed
+
+- **`capydb migrate squash` follows the engine rename to `capysquash`** (github.com/capydatabase/capysquash).
+  The install hint points at that repository, the validation DSN is handed over as
+  `CAPYSQUASH_VALIDATION_DSN`, and both the `capysquash.external-validation.v1` contract of the
+  next engine release and the `pgsquash.external-validation.v1` contract of engine v0.11.0 are
+  accepted. A `capysquash` binary is preferred on PATH; the old `pgsquash` name still works.
+
 ## [1.6.0] - 2026-09-22
 
 ### Added

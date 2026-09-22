@@ -924,7 +924,7 @@ func appendCallSiteWarnings(scenario *Scenario, report Report) {
 	}
 	if files := report.Repo.SupabaseAssets.MigrationFiles; files >= 50 {
 		scenario.Warnings = append(scenario.Warnings, fmt.Sprintf(
-			"%d migration files - a history this long has usually drifted from the deployed schema (compare with the live policy/table counts): consolidate it into a clean baseline before the move with `capydb migrate squash` (wraps the open-source pgsquash engine)",
+			"%d migration files - a history this long has usually drifted from the deployed schema (compare with the live policy/table counts): consolidate it into a clean baseline before the move with `capydb migrate squash` (wraps the open-source capysquash engine)",
 			files))
 	}
 }

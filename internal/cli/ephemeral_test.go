@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -109,7 +110,8 @@ func TestEphemeralCreateIsAnonymousAndKeepsSecretsInFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat ephemeral state: %v", err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	// Windows has no POSIX mode bits; os.Stat reports 0666 for every file.
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Fatalf("ephemeral state is %o, want 600: it holds the claim token", info.Mode().Perm())
 	}
 

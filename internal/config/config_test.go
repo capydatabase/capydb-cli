@@ -10,12 +10,15 @@ import (
 
 // isolateUserConfig redirects os.UserConfigDir into a temp directory so tests
 // never read or clobber the developer's real CLI config. HOME covers macOS
-// (~/Library/Application Support) and XDG_CONFIG_HOME covers Linux.
+// (~/Library/Application Support), XDG_CONFIG_HOME covers Linux and AppData
+// covers Windows - without the last one every test on Windows shares the
+// runner's real %AppData%\capydb and reads what its siblings wrote.
 func isolateUserConfig(t *testing.T) {
 	t.Helper()
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tempHome, ".config"))
+	t.Setenv("AppData", filepath.Join(tempHome, "AppData", "Roaming"))
 }
 
 func writeUserConfigFile(t *testing.T, contents string) string {

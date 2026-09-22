@@ -655,6 +655,9 @@ func isolateUserConfig(t *testing.T) {
 	tempHome := t.TempDir()
 	t.Setenv("HOME", tempHome)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(tempHome, ".config"))
+	// os.UserConfigDir reads %AppData% on Windows; without this every test
+	// there shares the runner's real config and reads what its siblings wrote.
+	t.Setenv("AppData", filepath.Join(tempHome, "AppData", "Roaming"))
 	for _, name := range capydbEnvVars {
 		t.Setenv(name, "")
 		if err := os.Unsetenv(name); err != nil {
@@ -764,7 +767,8 @@ func TestLinkCommandDetectsNestedAppAndResolvesProjectByName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read .gitignore: %v", err)
 	}
-	if !strings.Contains(string(gitignoreData), filepath.Join("apps", "web", ".env.local")) {
+	// .gitignore patterns always use "/", whatever the OS separator is.
+	if !strings.Contains(string(gitignoreData), "apps/web/.env.local") {
 		t.Fatalf(".gitignore does not ignore the nested app env file:\n%s", string(gitignoreData))
 	}
 }

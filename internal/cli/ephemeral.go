@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -68,6 +69,10 @@ func (a *app) newEphemeralDestroyCommand() *cobra.Command {
 			}
 
 			if err := client.DestroyEphemeralDatabase(cmd.Context(), state.ProjectID, state.ClaimToken); err != nil {
+				var apiErr *capydbclient.APIError
+				if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusMethodNotAllowed {
+					return fmt.Errorf("this CapyDB deployment does not support destroying an ephemeral database early yet; %s expires on its own on %s", state.Name, formatTime(state.ExpiresAt))
+				}
 				return ephemeralGoneError(err, state)
 			}
 			// The token has no authority left; keeping the record would only

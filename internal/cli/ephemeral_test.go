@@ -318,3 +318,33 @@ func TestEphemeralCreateExplainsADisabledDeployment(t *testing.T) {
 		t.Fatalf("a failed create must leave no record behind (stat err: %v)", statErr)
 	}
 }
+
+// A control plane older than the destroy route answers 405. The record must
+// survive (the database still exists) and the message must say what happened.
+func TestEphemeralDestroyExplainsAnOlderControlPlane(t *testing.T) {
+	isolateUserConfig(t)
+	cwd := t.TempDir()
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+	}))
+	defer server.Close()
+
+	if err := config.SaveEphemeralState(cwd, config.EphemeralState{
+		APIURL:     server.URL,
+		ClaimToken: testEphemeralToken,
+		ExpiresAt:  time.Now().Add(time.Hour),
+		Name:       "ephemeral-abc",
+		ProjectID:  testEphemeralProjectID,
+	}); err != nil {
+		t.Fatalf("seed ephemeral state: %v", err)
+	}
+
+	_, err := runCommand(t, cwd, "ephemeral", "destroy")
+	if err == nil || !strings.Contains(err.Error(), "does not support destroying") {
+		t.Fatalf("destroy against an old control plane returned %v, want an explanation", err)
+	}
+	if _, statErr := os.Stat(config.EphemeralStatePath(cwd)); statErr != nil {
+		t.Fatalf("ephemeral record must survive a failed destroy (stat err: %v)", statErr)
+	}
+}

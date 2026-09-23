@@ -527,7 +527,7 @@ func (a *app) newMigrateVerifyRLSCommand() *cobra.Command {
 
 			var tables []string
 			if list := strings.TrimSpace(tableList); list != "" {
-				for _, name := range strings.Split(list, ",") {
+				for name := range strings.SplitSeq(list, ",") {
 					if name = strings.TrimSpace(name); name != "" {
 						tables = append(tables, name)
 					}

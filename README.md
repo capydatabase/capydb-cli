@@ -74,6 +74,7 @@ The CLI will:
 - `capydb ephemeral create [--name N] [--no-env]` (a throwaway database with **no account and no login**: writes `DATABASE_URL` to the env file, or prints the connection strings with `--no-env`. Destroyed after 72 hours unless claimed. The claim token is kept in the git-ignored `.capydb/ephemeral.json`, mode 0600 - it cannot be recovered)
 - `capydb ephemeral status [--claim-url]` (state and time left; `--claim-url` prints the browser claim link, which embeds the secret token)
 - `capydb ephemeral claim` (keep it: logs in if needed, moves the database into your organization as a normal project, and links the directory. Data and connection strings do not change)
+- `capydb ephemeral destroy` (end it early with its claim token and free its slot; the database is deleted within seconds)
 - `capydb backups list`
 - `capydb backups create`
 - `capydb import` / `capydb import preflight --source-url <url>` (checks size, Postgres version, and extension compatibility before any destructive step)
@@ -90,6 +91,18 @@ The CLI will:
 - `capydb api-keys list|create|revoke` (`create` requires `--name` and `--scopes`; `--project` makes the key project-scoped; the plaintext key is shown exactly once)
 - `capydb webhooks list|create|delete|rotate-secret|deliveries` (organization webhook endpoints; signing secrets are shown exactly once)
 - `capydb kv status|create|credentials|rotate-token|flush|delete [--project <ref>]` (the project's K/V store - key-value and rate limiting. `create` and `rotate-token` are the only chance to capture the token - only its hash is stored - and accept `--write-env` to merge `CAPYKV_REST_URL`, `CAPYKV_REST_TOKEN` and `CAPYKV_REDIS_URL` (the RESP URL, which carries the token as its password) into the project's env file, in which case the token and the RESP URL are written there instead of printed; `credentials` cannot show the token, because only its hash is stored)
+- `capydb create` (create a project and link the current directory; `--postgres-version 16|17|18`, `--environment production|non_production`)
+- `capydb projects list|always-on|set-environment` (production projects stay awake by default; `always-on` and `set-environment` change the sleep policy)
+- `capydb credentials rotate [--grace-hours N]` (new database password; with a grace period, a new username too, and the old one keeps working until the window ends)
+- `capydb restore-points list|create|delete` (labelled points to restore to)
+- `capydb export [list|download]` (a downloadable dump of the project database)
+- `capydb logs [--follow]` (the project's database logs)
+- `capydb advisor indexes|index-hygiene` (index suggestions, and unused or redundant indexes)
+- `capydb upgrade preflight|minor` (Postgres version upgrades)
+- `capydb schema dump|diff` and `capydb generate types|zod|drizzle` (schema inspection and typed code from the live schema)
+- `capydb init drizzle` (scaffold a Drizzle setup for the linked project)
+- `capydb migrate scan|deps|rls|verify-rls|squash|verify|codemod` (plan and check a move from another Postgres provider)
+- `capydb integrations env` (print the env payload an integration would inject)
 - `capydb completion bash|zsh|fish|powershell` (shell completions; release archives and the Homebrew cask ship pre-generated scripts)
 
 Global flags on every command:
@@ -181,9 +194,8 @@ For monorepos, the CLI can detect nested app directories and prompt for the app 
 ## Development
 
 ```bash
-cd /cli
 make build
-./capydb-cli --version
+./capydb --version
 ```
 
 Useful targets:

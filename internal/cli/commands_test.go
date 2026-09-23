@@ -818,3 +818,17 @@ func TestWebhooksRedeliverRequiresEndpoint(t *testing.T) {
 		t.Fatalf("expected usage exit code, got %v", err)
 	}
 }
+
+// TestInitResolvesToTheInitGroup: `create` once carried the alias "init", and
+// cobra's first match shadowed the `init` group, so the documented
+// `capydb init drizzle` started `capydb create` - and could create a project.
+func TestInitResolvesToTheInitGroup(t *testing.T) {
+	root := newRootCommand(&app{cwd: t.TempDir()}, "test")
+	command, _, err := root.Find([]string{"init", "drizzle"})
+	if err != nil {
+		t.Fatalf("Find(init drizzle) error = %v", err)
+	}
+	if command.CommandPath() != "capydb init drizzle" {
+		t.Fatalf("init drizzle resolved to %q, want %q", command.CommandPath(), "capydb init drizzle")
+	}
+}

@@ -444,9 +444,8 @@ func (a *app) newCreateCommand() *cobra.Command {
 	var waitTimeout time.Duration
 
 	command := &cobra.Command{
-		Use:     "create",
-		Aliases: []string{"init"},
-		Short:   "Create a CapyDB project and link the current directory to it",
+		Use:   "create",
+		Short: "Create a CapyDB project and link the current directory to it",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			// In JSON mode stdout carries exactly one JSON document (the

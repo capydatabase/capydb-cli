@@ -117,7 +117,6 @@ Compatibility aliases:
 - `capydb auth logout`
 - `capydb auth whoami`
 - `capydb connect` -> `capydb link`
-- `capydb init` -> `capydb create`
 
 ## Linking a local project
 

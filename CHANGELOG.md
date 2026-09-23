@@ -8,6 +8,13 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Fixed
+
+- **`capydb init drizzle` runs the Drizzle scaffold again.** `create` carried the alias `init`, and
+  cobra's first match shadowed the `init` command group, so the documented `capydb init drizzle`
+  started `capydb create` (and could create a project). The alias is removed; `capydb create` is the
+  only spelling.
+
 ## [1.7.0] - 2026-09-22
 
 ### Added

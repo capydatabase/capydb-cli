@@ -8,6 +8,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+## [1.7.1] - 2026-09-24
+
 ### Fixed
 
 - **`capydb init drizzle` runs the Drizzle scaffold again.** `create` carried the alias `init`, and
@@ -480,7 +482,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 - First release: project linking, `env pull`, preview databases, imports, logs, and studio.
 
-[Unreleased]: https://github.com/capydatabase/capydb-cli/compare/v1.7.0...HEAD
+[Unreleased]: https://github.com/capydatabase/capydb-cli/compare/v1.7.1...HEAD
+[1.7.1]: https://github.com/capydatabase/capydb-cli/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/capydatabase/capydb-cli/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/capydatabase/capydb-cli/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/capydatabase/capydb-cli/compare/v1.4.0...v1.5.0

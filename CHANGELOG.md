@@ -14,6 +14,10 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   cobra's first match shadowed the `init` command group, so the documented `capydb init drizzle`
   started `capydb create` (and could create a project). The alias is removed; `capydb create` is the
   only spelling.
+- **`capydb migrate rls` no longer reports a service escape it never emits.** With
+  `--mode supabase-compat --role-model single`, `service_role`-only policies were reported as
+  covered by an escape the bundle does not contain; the report now says no service path exists.
+  capyrls v1.13.1.
 
 ## [1.7.0] - 2026-09-22
 

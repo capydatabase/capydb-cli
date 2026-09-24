@@ -1,7 +1,7 @@
 github.com/capydatabase/capydbclient v1.13.0 h1:p5iPMk+A6y71+obyoX6JS5n3DEGaLCtCS5fHLSGsdg8=
 github.com/capydatabase/capydbclient v1.13.0/go.mod h1:pWQ8giRXl5CKpYzZ8QN63AuTYY4rimg087RrL8nqy18=
-github.com/capydatabase/capyrls v1.13.0 h1:KuhBo7JPoNHmP5/ofmxGD8RVdeJJNpICvZ5ii5qW4nU=
-github.com/capydatabase/capyrls v1.13.0/go.mod h1:ucvZkZ5YJSUFnNdedEitnpn0UgBttVZyIwvn9ZYE4xw=
+github.com/capydatabase/capyrls v1.13.1 h1:bV3cGTkKSsTzKIzt6dUmnBs7dhtOjxWqmIf3hKg578k=
+github.com/capydatabase/capyrls v1.13.1/go.mod h1:ucvZkZ5YJSUFnNdedEitnpn0UgBttVZyIwvn9ZYE4xw=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2s0bqwp9tc8=

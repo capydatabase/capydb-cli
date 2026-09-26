@@ -8,6 +8,17 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-09-26
+
+### Changed
+
+- **`capydb restore --target-kind project` takes an approval a person created instead of minting
+  one.** The control plane no longer lets an API key approve its own overwrite restore, so the CLI
+  stops minting the approval itself. An organization admin creates one on the project's Backups page
+  in the dashboard and hands over the token; pass it with `--approval-token` or
+  `CAPYDB_APPROVAL_TOKEN` (it works for 10 minutes). Without one the command stops before the
+  destructive call and prints the Backups page URL.
+
 ## [1.7.1] - 2026-09-24
 
 ### Fixed
@@ -482,7 +493,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 - First release: project linking, `env pull`, preview databases, imports, logs, and studio.
 
-[Unreleased]: https://github.com/capydatabase/capydb-cli/compare/v1.7.1...HEAD
+[Unreleased]: https://github.com/capydatabase/capydb-cli/compare/v1.8.0...HEAD
+[1.8.0]: https://github.com/capydatabase/capydb-cli/compare/v1.7.1...v1.8.0
 [1.7.1]: https://github.com/capydatabase/capydb-cli/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/capydatabase/capydb-cli/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/capydatabase/capydb-cli/compare/v1.5.0...v1.6.0

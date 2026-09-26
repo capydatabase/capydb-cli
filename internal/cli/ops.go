@@ -1178,6 +1178,7 @@ func writeImportPreflight(out io.Writer, preflight api.ImportPreflight) {
 
 func (a *app) newRestoreCommand() *cobra.Command {
 	var allowUnverified bool
+	var approvalToken string
 	var backupKey string
 	var confirmFlag bool
 	var confirmProjectOverwrite bool
@@ -1214,7 +1215,7 @@ func (a *app) newRestoreCommand() *cobra.Command {
 				return usageErrorf("exactly one of --backup-key, --restore-time, or --restore-point is required")
 			}
 
-			client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
+			client, authConfig, err := a.resolveClient(true, a.linkedProjectAPIURL())
 			if err != nil {
 				return err
 			}
@@ -1258,14 +1259,18 @@ func (a *app) newRestoreCommand() *cobra.Command {
 				if !confirmed {
 					return fmt.Errorf("project overwrite not confirmed; pass --confirm or confirm interactively")
 				}
-				// The confirmation above is the human gate; the control plane's
-				// gate is a single-use approval token minted here and consumed
-				// by the restore itself.
-				approval, err := client.MintProjectApproval(ctx, project.ID, "project.restore_overwrite")
-				if err != nil {
-					return fmt.Errorf("mint restore approval: %w", err)
+				// The control plane's gate is a single-use approval that only a
+				// person signed in to the dashboard can create; an API key cannot
+				// approve its own overwrite. The CLI presents the token it is given.
+				token := firstNonEmpty(strings.TrimSpace(approvalToken), strings.TrimSpace(os.Getenv("CAPYDB_APPROVAL_TOKEN")))
+				if token == "" {
+					backupsURL, urlErr := buildDashboardURL(a.resolveAppURL(authConfig.APIURL), lookupWorkspaceSlug(ctx, client), project.Slug, project.ID, "backups")
+					if urlErr != nil {
+						backupsURL = "the project's Backups page in the dashboard"
+					}
+					return fmt.Errorf("overwriting %s needs an approval from an organization admin: open %s, create an approval for an overwrite restore, and re-run with --approval-token <token> (or set CAPYDB_APPROVAL_TOKEN); the token works for 10 minutes", project.Name, backupsURL)
 				}
-				request.ApprovalToken = approval.Token
+				request.ApprovalToken = token
 			}
 
 			job, err := client.CreateRestore(ctx, project.ID, request)
@@ -1297,6 +1302,7 @@ func (a *app) newRestoreCommand() *cobra.Command {
 	command.Flags().StringVar(&previewName, "preview-name", "", "Preview name when target-kind is new_preview")
 	command.Flags().IntVar(&ttlHours, "ttl-hours", 0, "Preview TTL in hours when target-kind is new_preview")
 	command.Flags().BoolVar(&confirmFlag, "confirm", false, "Confirm overwriting the project database (target-kind project)")
+	command.Flags().StringVar(&approvalToken, "approval-token", "", "Approval an organization admin created in the dashboard for an overwrite restore (target-kind project); defaults to $CAPYDB_APPROVAL_TOKEN")
 	// Deprecated spelling kept as a hidden alias: --confirm is the standard
 	// destructive-confirm flag across capydb commands.
 	command.Flags().BoolVar(&confirmProjectOverwrite, "confirm-project-overwrite", false, "Confirm overwriting the project database")

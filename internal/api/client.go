@@ -505,20 +505,6 @@ func (c *Client) CreatePreviewDatabase(ctx context.Context, projectID string, re
 	return response.Preview, response.Job, nil
 }
 
-// MintProjectApproval mints a single-use approval token for one destructive
-// project action ("project.delete" or "project.restore_overwrite"). The raw
-// token is returned exactly once; it expires ~10 minutes after mint.
-func (c *Client) MintProjectApproval(ctx context.Context, projectID, action string) (capydbclient.ProjectApproval, error) {
-	var response struct {
-		Approval capydbclient.ProjectApproval `json:"approval"`
-	}
-	payload := map[string]string{"action": action}
-	if err := c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/approvals", payload, &response); err != nil {
-		return capydbclient.ProjectApproval{}, err
-	}
-	return response.Approval, nil
-}
-
 func (c *Client) CreateRestore(ctx context.Context, projectID string, request CreateRestoreRequest) (Job, error) {
 	var response struct {
 		Job Job `json:"job"`

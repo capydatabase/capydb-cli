@@ -215,17 +215,16 @@ func newImportGateServer(t *testing.T, mutatingPath string, gotBody *map[string]
 					"state":           "ready",
 				}},
 			})
-		case r.Method == http.MethodPost && r.URL.Path == "/v1/projects/project_1/approvals":
-			// Overwrite restores mint a single-use approval before the
-			// destructive call; hand back a token for the request to carry.
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/me":
 			writeJSON(t, w, map[string]any{
-				"approval": map[string]any{
-					"id":         "apr_1",
-					"action":     "project.restore_overwrite",
-					"expires_at": "2026-07-14T00:10:00Z",
-					"token":      "ap_test_token",
-				},
+				"organization": map[string]any{"id": "org_1", "clerk_organization_slug": "acme"},
+				"principal":    map[string]any{"organization_id": "org_1", "scopes": []string{"*"}},
 			})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/projects/project_1/approvals":
+			// The CLI must never mint its own approval: only a person in the
+			// dashboard can, and the control plane refuses an API key.
+			t.Errorf("the CLI minted an approval; it must present the one it was given")
+			w.WriteHeader(http.StatusForbidden)
 		case r.Method == http.MethodPost && r.URL.Path == mutatingPath:
 			*mutated = true
 			if gotBody != nil {
@@ -448,6 +447,7 @@ func TestRestoreConfirmFlagAliasesOverwrite(t *testing.T) {
 		"--target-kind", "project",
 		"--backup-key", "logical/app/20260714.dump",
 		"--confirm",
+		"--approval-token", "ap_test_token",
 		"--api-url", server.URL,
 		"--api-key", "capy_test_key",
 	})
@@ -459,7 +459,72 @@ func TestRestoreConfirmFlagAliasesOverwrite(t *testing.T) {
 		t.Fatalf("restore endpoint was never called")
 	}
 	if gotBody["approval_token"] != "ap_test_token" {
-		t.Fatalf("expected the minted approval_token in body, got %#v", gotBody)
+		t.Fatalf("expected the given approval_token in body, got %#v", gotBody)
+	}
+}
+
+// Without an approval a person created, an overwrite restore stops before the destructive call and
+// says where to create one.
+func TestRestoreOverwriteWithoutApprovalPointsAtTheDashboard(t *testing.T) {
+	t.Setenv("CI", "true")
+	t.Setenv("CAPYDB_APPROVAL_TOKEN", "")
+
+	var mutated bool
+	server := newImportGateServer(t, "/v1/projects/project_1/restores", nil, &mutated)
+	defer server.Close()
+
+	application := &app{cwd: t.TempDir()}
+	command := newRootCommand(application, "test")
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{
+		"restore",
+		"--project", "test-app",
+		"--target-kind", "project",
+		"--backup-key", "logical/app/20260714.dump",
+		"--confirm",
+		"--api-url", server.URL,
+		"--api-key", "capy_test_key",
+	})
+
+	err := command.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--approval-token") || !strings.Contains(err.Error(), "backups") {
+		t.Fatalf("expected an error pointing at the backups page and --approval-token, got %v", err)
+	}
+	if mutated {
+		t.Fatalf("the restore endpoint was called without an approval")
+	}
+}
+
+// CAPYDB_APPROVAL_TOKEN carries the approval for scripts and CI.
+func TestRestoreOverwriteReadsTheApprovalFromTheEnvironment(t *testing.T) {
+	t.Setenv("CI", "true")
+	t.Setenv("CAPYDB_APPROVAL_TOKEN", "ap_env_token")
+
+	var mutated bool
+	gotBody := map[string]any{}
+	server := newImportGateServer(t, "/v1/projects/project_1/restores", &gotBody, &mutated)
+	defer server.Close()
+
+	application := &app{cwd: t.TempDir()}
+	command := newRootCommand(application, "test")
+	command.SetOut(new(bytes.Buffer))
+	command.SetErr(new(bytes.Buffer))
+	command.SetArgs([]string{
+		"restore",
+		"--project", "test-app",
+		"--target-kind", "project",
+		"--backup-key", "logical/app/20260714.dump",
+		"--confirm",
+		"--api-url", server.URL,
+		"--api-key", "capy_test_key",
+	})
+
+	if err := command.Execute(); err != nil {
+		t.Fatalf("execute restore: %v", err)
+	}
+	if gotBody["approval_token"] != "ap_env_token" {
+		t.Fatalf("expected the approval from CAPYDB_APPROVAL_TOKEN, got %#v", gotBody)
 	}
 }
 

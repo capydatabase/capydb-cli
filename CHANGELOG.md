@@ -8,6 +8,17 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Changed
+
+- capyrls v1.15.0 -> v1.16.0.
+- **`capydb migrate rls --role-model split` works on CapyDB.** It was refused for the default
+  `--target capydb`. It now builds a bundle for the project's runtime role `app_user`, which the
+  platform creates once the project enables it (`POST /v1/projects/{id}/roles/app`): the bundle
+  creates no roles, checks that `app_user` exists (and says how to enable it if not), grants to it,
+  and turns `anon`/`authenticated` into predicates on it. The owner is the service path - it
+  bypasses row security on tables that are not FORCEd - so there is no `BYPASSRLS` role.
+  `--role-model single` stays the default.
+
 ## [2.0.0] - 2026-09-29
 
 ### Changed

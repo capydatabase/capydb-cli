@@ -188,6 +188,13 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   `netlify link`) or `--vercel-project`/`--team` / `--site`; the token from `--token`,
   `VERCEL_TOKEN` or `NETLIFY_AUTH_TOKEN`. CapyDB stores the token encrypted and pushes again on
   every credential rotation; `--preview-branches` adds a preview database per branch deployment.
+- **`capydb doctor --fix`** applies the fixes that are mechanical, then runs the checks: database
+  env vars missing from the linked env file are added (existing values are never overwritten),
+  drizzle-kit configs get `schemaFilter: ["public"]` and the direct URL for credentials, Prisma
+  schemas get `directUrl`. Fixes that remove something - the link to a project that no longer
+  exists, database vars in other env files that shadow the linked one - are asked one by one on a
+  terminal, applied without asking with `--yes`, and skipped otherwise. Everything else is listed
+  as manual. `doctor` also gained an `env_vars` check for the linked env file.
 
 
 ## [1.8.0] - 2026-09-26

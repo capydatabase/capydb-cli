@@ -98,3 +98,33 @@ func TestUpsertWithResolverSkippedWhenValueUnchanged(t *testing.T) {
 		t.Fatalf("upsert: %v", err)
 	}
 }
+
+func TestValuesAndRemoveKeys(t *testing.T) {
+	path := filepath.Join(t.TempDir(), ".env")
+	content := "# db\nexport DATABASE_URL=\"postgres://old\"\nEMPTY=\nOTHER='x'\nDIRECT_URL=postgres://old2\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	values, err := Values(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if values["DATABASE_URL"] != "postgres://old" || values["OTHER"] != "x" || len(values) != 3 {
+		t.Fatalf("values = %v", values)
+	}
+	removed, err := RemoveKeys(path, []string{"DATABASE_URL", "DIRECT_URL"})
+	if err != nil || removed != 2 {
+		t.Fatalf("removed = %d, %v", removed, err)
+	}
+	raw, _ := os.ReadFile(path)
+	if string(raw) != "# db\nEMPTY=\nOTHER='x'\n" {
+		t.Fatalf("file = %q", raw)
+	}
+	info, _ := os.Stat(path)
+	if info.Mode().Perm() != 0o600 {
+		t.Fatalf("mode changed to %v", info.Mode().Perm())
+	}
+	if missing, err := Values(filepath.Join(t.TempDir(), "nope")); err != nil || len(missing) != 0 {
+		t.Fatalf("missing file: %v %v", missing, err)
+	}
+}

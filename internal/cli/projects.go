@@ -15,7 +15,7 @@ func (a *app) newProjectsCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:     "projects",
 		Aliases: []string{"project"},
-		Short:   "Inspect CapyDB projects",
+		Short:   "Inspect, configure, and delete CapyDB projects",
 	}
 
 	listCommand := &cobra.Command{
@@ -122,6 +122,7 @@ func (a *app) newProjectsCommand() *cobra.Command {
 	command.AddCommand(listCommand)
 	command.AddCommand(setEnvironmentCommand)
 	command.AddCommand(alwaysOnCommand)
+	command.AddCommand(a.newProjectsDeleteCommand())
 	return command
 }
 

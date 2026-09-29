@@ -18,6 +18,13 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   and the report names each uuid column the user id is compared to or defaulted into - change those
   to `text` before applying, or the apply stops with `operator does not exist: text = uuid`. The
   default stays `uuid`. Built on capyrls v1.14.0.
+- **`capydb projects delete <project>` deletes a project** - its database, preview databases, and
+  backups. The project must be named (id, slug, or name); the linked project is never used
+  implicitly. Confirm by retyping the project name or pass `--confirm` (`--yes` is accepted too). A
+  production project also needs a delete approval an organization admin creates on the project's
+  settings page in the dashboard, passed with `--approval-token` or `CAPYDB_APPROVAL_TOKEN`; without
+  one the command stops before any destructive call and prints the settings page URL.
+  Non-production projects need only the confirmation. `--wait` follows the deletion job.
 
 ## [1.8.0] - 2026-09-26
 

@@ -515,6 +515,24 @@ func (c *Client) CreateRestore(ctx context.Context, projectID string, request Cr
 	return response.Job, nil
 }
 
+// DeleteProject queues deletion of a project's database, previews, and
+// backups. A production project needs a single-use `project.delete` approval
+// token that a person created in the dashboard; presenting an already-consumed
+// token returns the job it authorized instead of deleting again.
+func (c *Client) DeleteProject(ctx context.Context, projectID, approvalToken string) (Job, error) {
+	var response struct {
+		Job Job `json:"job"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID)
+	if token := strings.TrimSpace(approvalToken); token != "" {
+		path += "?approval_token=" + url.QueryEscape(token)
+	}
+	if err := c.do(ctx, http.MethodDelete, path, nil, &response); err != nil {
+		return Job{}, err
+	}
+	return response.Job, nil
+}
+
 func (c *Client) DeletePreviewDatabase(ctx context.Context, previewID string) (Job, error) {
 	var response struct {
 		Job Job `json:"job"`

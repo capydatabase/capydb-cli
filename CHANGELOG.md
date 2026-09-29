@@ -40,6 +40,14 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   the statement that fixes it. `--exit-code` fails on warnings for CI; `--preview` runs the
   schema checks against a preview. The catalog checks go through the SQL endpoint, so the key
   needs `projects:write` (the statement itself runs in a read-only transaction).
+- **`capydb seed`** loads seed data into the linked project, `--project`, or a `--preview`. A
+  `.sql` file runs through psql in one transaction (COPY blocks and meta-commands work; a failing
+  file leaves nothing behind). `--run "<command>"` runs any seeder (drizzle-seed, Prisma, a script)
+  with every database variable name - `DATABASE_URL`, `DATABASE_DIRECT_URL`, `DIRECT_URL`,
+  `CAPYDB_DATABASE_URL`, the linked names - set to the target's direct URL. With neither, it
+  runs the package.json `db:seed`/`seed` script, Prisma's `prisma.seed`, or a conventional
+  `seed.sql`. A production project needs `--confirm-production` (or the typed project name) and
+  gets a restore point first, so the seed can be undone; `--dry-run` shows what would run.
 
 ### Changed
 

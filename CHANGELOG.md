@@ -11,6 +11,13 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 ### Added
 
 - `LICENSE` with the MIT license text.
+- **`capydb migrate rls --uid-type text` for identity providers whose user ids are not uuids.**
+  The converted user-id accessor (`app.user_id()`, or `auth.uid()` with `--mode supabase-compat`)
+  cast the subject to `uuid`, so a Clerk-style `user_2abc...` id made every policy calling it fail
+  with `invalid input syntax for type uuid`. With `--uid-type text` it returns the id as `text`,
+  and the report names each uuid column the user id is compared to or defaulted into - change those
+  to `text` before applying, or the apply stops with `operator does not exist: text = uuid`. The
+  default stays `uuid`. Built on capyrls v1.14.0.
 
 ## [1.8.0] - 2026-09-26
 

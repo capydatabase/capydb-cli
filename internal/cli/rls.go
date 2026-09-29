@@ -34,6 +34,7 @@ func (a *app) newMigrateRLSCommand() *cobra.Command {
 		roleModel       string
 		keepForAll      bool
 		noServiceEscape bool
+		uidType         string
 		outDir          string
 		sourceURL       string
 	)
@@ -57,6 +58,13 @@ most faithful input, introspect the LIVE database instead of parsing files -
 migration folders drift from what is actually deployed (dropped-and-recreated
 policies, SQL-editor hotfixes that never became migrations):
   capydb migrate rls --source-url "$SUPABASE_DIRECT_URL"
+
+Supabase's auth.uid() returns uuid, and so does the converted accessor by
+default. If your identity provider's subjects are not uuids (Clerk's
+user_2abc... ids), pass --uid-type text: the accessor then returns text, and
+the report names every uuid column the user id is compared to - change those
+to text before applying, or the apply stops with "operator does not exist:
+text = uuid".
 
 Policies that reference auth.users or Supabase-managed schemas are surfaced
 in the report, not silently dropped.`,
@@ -85,6 +93,14 @@ in the report, not silently dropped.`,
 				options.RoleModel = capyrls.RoleSplit
 			default:
 				return usageErrorf("unknown --role-model %q (single or split)", roleModel)
+			}
+			switch uidType {
+			case "uuid":
+				options.UIDType = capyrls.UIDUUID
+			case "text":
+				options.UIDType = capyrls.UIDText
+			default:
+				return usageErrorf("unknown --uid-type %q (uuid or text)", uidType)
 			}
 
 			var result *capyrls.Result
@@ -136,6 +152,7 @@ in the report, not silently dropped.`,
 	command.Flags().StringVar(&roleModel, "role-model", "single", "single: FORCE RLS, app connects as owner (CapyDB default); split: app_user/app_service roles")
 	command.Flags().BoolVar(&keepForAll, "keep-for-all", false, "Keep FOR ALL policies instead of splitting them per command")
 	command.Flags().BoolVar(&noServiceEscape, "no-service-escape", false, "Single role model: skip the GUC-gated service bypass policies")
+	command.Flags().StringVar(&uidType, "uid-type", "uuid", "Type the user-id accessor returns: uuid (Supabase's), or text for non-uuid subjects such as Clerk's user_... ids")
 	command.Flags().StringVar(&outDir, "out", "capyrls", "Directory to write the SQL bundle and report into")
 	command.Flags().StringVar(&sourceURL, "source-url", "", "Introspect the LIVE database (direct endpoint, read-only) instead of parsing SQL files")
 	return command

@@ -134,6 +134,59 @@ func TestMigrateRLSJSONOutput(t *testing.T) {
 	}
 }
 
+// Clerk-style subjects (user_2abc...) are not uuids: --uid-type text makes the
+// accessor return text, and the fixture's uuid owner_id column is reported as
+// the thing to change before applying.
+func TestMigrateRLSUIDTypeText(t *testing.T) {
+	dir := writeRLSFixture(t)
+	output, err := runCommand(t, dir, "-o", "json", "migrate", "rls", dir, "--uid-type", "text", "--out", filepath.Join(dir, "capyrls"))
+	if err != nil {
+		t.Fatalf("migrate rls: %v\n%s", err, output)
+	}
+	var payload struct {
+		RLS struct {
+			Report struct {
+				UIDType string `json:"uid_type"`
+				GUCs    []struct {
+					Name string `json:"name"`
+					Type string `json:"type"`
+				} `json:"gucs"`
+				Warnings []string `json:"warnings"`
+			} `json:"report"`
+		} `json:"rls"`
+	}
+	jsonStart := strings.Index(output, "{")
+	if err := json.NewDecoder(strings.NewReader(output[jsonStart:])).Decode(&payload); err != nil {
+		t.Fatalf("JSON output not parseable: %v\n%s", err, output)
+	}
+	report := payload.RLS.Report
+	if report.UIDType != "text" {
+		t.Errorf("uid_type = %q, want text", report.UIDType)
+	}
+	if len(report.GUCs) == 0 || report.GUCs[0].Name != "app.user_id" || report.GUCs[0].Type != "text" {
+		t.Errorf("app.user_id should be typed text: %+v", report.GUCs)
+	}
+	if !strings.Contains(strings.Join(report.Warnings, "\n"), "uuid column public.todos.owner_id") {
+		t.Errorf("warnings should name the uuid owner_id column: %v", report.Warnings)
+	}
+
+	prelude, err := os.ReadFile(filepath.Join(dir, "capyrls", "capyrls_01_prelude.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(prelude), "returns text") || strings.Contains(string(prelude), "::uuid") {
+		t.Errorf("prelude should define a text accessor without a uuid cast:\n%s", prelude)
+	}
+}
+
+func TestMigrateRLSInvalidUIDTypeIsUsageError(t *testing.T) {
+	dir := writeRLSFixture(t)
+	_, err := runCommand(t, dir, "migrate", "rls", dir, "--uid-type", "int")
+	if err == nil || !strings.Contains(err.Error(), "--uid-type") {
+		t.Fatalf("expected a usage error for a bad --uid-type, got %v", err)
+	}
+}
+
 func TestMigrateRLSInvalidFlagIsUsageError(t *testing.T) {
 	dir := writeRLSFixture(t)
 	_, err := runCommand(t, dir, "migrate", "rls", dir, "--mode", "nonsense")

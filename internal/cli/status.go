@@ -187,15 +187,6 @@ func (a *app) buildStatusReport(cmd *cobra.Command, options statusOptions) (stat
 	}
 	report.RemoteProject = remote
 
-	if options.usage {
-		usage := buildStatusUsage(ctx, client, project)
-		report.Usage = &usage
-		// The usage section reads the live figures itself (and skips them
-		// while the database is paused); reading observability again below
-		// would wake a paused database.
-		return report, nil
-	}
-
 	if strings.TrimSpace(project.LatestJobID) != "" {
 		job, err := client.GetJob(ctx, project.LatestJobID)
 		if err != nil {
@@ -203,6 +194,15 @@ func (a *app) buildStatusReport(cmd *cobra.Command, options statusOptions) (stat
 		} else {
 			remote.LatestJob = &job
 		}
+	}
+
+	if options.usage {
+		usage := buildStatusUsage(ctx, client, project)
+		report.Usage = &usage
+		// The usage section reads the live figures itself (and skips them
+		// while the database is paused); reading observability again below
+		// would wake a paused database.
+		return report, nil
 	}
 
 	observability, err := client.GetProjectObservability(ctx, project.ID)

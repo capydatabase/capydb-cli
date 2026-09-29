@@ -77,3 +77,20 @@ func TestStatusUsageNeedsAProject(t *testing.T) {
 		t.Fatal("expected an error without a linked project")
 	}
 }
+
+func TestStatusUsageKeepsTheLatestJob(t *testing.T) {
+	t.Setenv("CI", "true")
+	isolateUserConfig(t)
+	routes := usageRoutes(t)
+	routes["GET /v1/jobs/job_9"] = func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(t, w, map[string]any{"job": map[string]any{"id": "job_9", "type": "project.backup", "state": "completed"}})
+	}
+	server := newFakeControlPlane(t, map[string]any{"runtime_status": "paused", "latest_job_id": "job_9"}, routes)
+	output, err := runCommand(t, t.TempDir(), "status", "--usage", "--project", "prj_1", "--api-url", server.URL, "--api-key", "capy_test")
+	if err != nil {
+		t.Fatalf("status --usage: %v\n%s", err, output)
+	}
+	if !strings.Contains(output, "latest_job_id: job_9") {
+		t.Fatalf("latest job dropped:\n%s", output)
+	}
+}

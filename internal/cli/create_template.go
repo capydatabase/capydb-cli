@@ -75,9 +75,13 @@ func (a *app) withCreateTemplate(create *cobra.Command) *cobra.Command {
 	var templateName string
 	create.Flags().StringVar(&templateName, "template", "empty", "Starter template applied after the project is created: "+strings.Join(starterTemplateNames(), ", "))
 
+	createPreRun := create.PreRunE
 	create.PreRunE = func(cmd *cobra.Command, args []string) error {
 		if _, ok := starterTemplates[strings.TrimSpace(templateName)]; !ok {
 			return usageErrorf("unknown --template %q; available: %s", templateName, strings.Join(starterTemplateNames(), ", "))
+		}
+		if createPreRun != nil {
+			return createPreRun(cmd, args)
 		}
 		return nil
 	}

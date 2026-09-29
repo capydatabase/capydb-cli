@@ -8,6 +8,10 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Added
+
+- `LICENSE` with the MIT license text.
+
 ## [1.8.0] - 2026-09-26
 
 ### Changed

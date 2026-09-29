@@ -33,6 +33,13 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   billing status, storage and connections against their limits, active previews, retained backups
   and their size, plus a note when storage or connections pass 80%. A paused database is not
   read (reading storage would wake it); the storage limit is still shown.
+- **`capydb db lint`**: read-only schema and index checks - tables without a primary key (pointing
+  at a NOT NULL unique constraint that could be promoted), foreign keys with no index leading with
+  their columns, byte-for-byte duplicate indexes, unused and redundant indexes (from
+  `advisor index-hygiene`), and tables whose dead rows outgrow autovacuum. Every finding carries
+  the statement that fixes it. `--exit-code` fails on warnings for CI; `--preview` runs the
+  schema checks against a preview. The catalog checks go through the SQL endpoint, so the key
+  needs `projects:write` (the statement itself runs in a read-only transaction).
 
 ### Changed
 

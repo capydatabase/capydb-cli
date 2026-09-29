@@ -132,6 +132,7 @@ Exit codes:
 	root.AddCommand(application.newKVCommand())
 	root.AddCommand(application.newPsqlCommand())
 	root.AddCommand(application.newSQLCommand())
+	root.AddCommand(application.newDBCommand())
 	root.AddCommand(application.newMetricsCommand())
 	root.AddCommand(application.newLogsCommand())
 	root.AddCommand(application.newProjectsCommand())

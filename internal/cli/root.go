@@ -441,6 +441,7 @@ func (a *app) newCreateCommand() *cobra.Command {
 	var slug string
 	var environment string
 	var postgresVersion string
+	var sourceURL string
 	var waitTimeout time.Duration
 
 	command := &cobra.Command{
@@ -491,10 +492,23 @@ func (a *app) newCreateCommand() *cobra.Command {
 					return err
 				}
 
+				envPath := envTargetPath(a.cwd, detection.AppPath, firstNonEmpty(envFileOverride, detection.EnvFile))
+				sourceMajor, err := resolveCreateSourceMajor(ctx, progress, sourceURL, postgresVersion, envPath)
+				if err != nil {
+					return err
+				}
+				resolvedVersion, versionNotes, err := createPostgresVersion(postgresVersion, sourceMajor)
+				if err != nil {
+					return err
+				}
+				for _, note := range versionNotes {
+					_, _ = fmt.Fprintln(progress, note)
+				}
+
 				request := api.CreateProjectRequest{
 					Environment:     strings.TrimSpace(environment),
 					Name:            firstNonEmpty(projectName, detection.ProjectName),
-					PostgresVersion: strings.TrimSpace(postgresVersion),
+					PostgresVersion: resolvedVersion,
 					Region:          selectedRegion,
 					Slug:            strings.TrimSpace(slug),
 				}
@@ -563,7 +577,8 @@ func (a *app) newCreateCommand() *cobra.Command {
 	command.Flags().StringVar(&region, "region", "", "Region for project placement (server picks one when omitted)")
 	command.Flags().StringVar(&slug, "slug", "", "Project slug override")
 	command.Flags().StringVar(&environment, "environment", "", "Environment label: production (default) or non_production (unlocks overwrite-restore)")
-	command.Flags().StringVar(&postgresVersion, "postgres-version", "", "Postgres major version: 16, 17, or 18 (server default when omitted)")
+	command.Flags().StringVar(&postgresVersion, "postgres-version", "", "Postgres major version: 16, 17, or 18 (the --source-url major, else the server default, when omitted)")
+	command.Flags().StringVar(&sourceURL, "source-url", "", "Database you will import from: the project gets its Postgres major (read-only version query)")
 	command.Flags().DurationVar(&waitTimeout, "wait-timeout", defaultWaitTimeout, "Maximum time to wait for the provision job")
 	return command
 }

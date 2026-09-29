@@ -56,6 +56,14 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   transaction pooler port 6543, naming the session pooler (`<host>:5432`) to use instead. Without a
   token the preflight explains where to copy the Session pooler string and prints the `curl` that
   reads it.
+- **`capydb create --source-url <url>` creates the project on the source database's Postgres
+  major.** A dump restores into the same or a newer major, never an older one, so without
+  `--postgres-version` the project gets the source's major (read with one read-only query), raised to
+  16 for older sources; a source newer than every offered major (18) stops the create with an
+  explanation. An explicit `--postgres-version` still wins, with a warning when it is older than the
+  source. An unreachable `--source-url` fails before anything is created. Without the flag, when the
+  env file `create` is about to write already points `DATABASE_URL` / `DIRECT_URL` at a database
+  outside CapyDB, `create` says so and names the flag; it does not connect to that database.
 
 ## [1.8.0] - 2026-09-26
 

@@ -18,9 +18,23 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   and the report names each uuid column the user id is compared to or defaulted into - change those
   to `text` before applying, or the apply stops with `operator does not exist: text = uuid`. The
   default stays `uuid`. Built on capyrls v1.14.0.
+- **`capydb migrate rls --mode supabase-compat` now has a service path.** Under the default single
+  role model the bundle emits a service escape keyed on the claims: a transaction whose verified
+  `request.jwt.claims` carry `"role": "service_role"` skips the row filters, where before nothing
+  bypassed the FORCEd policies. In both modes the escape now also passes restrictive policies,
+  as `service_role`'s `BYPASSRLS` did. capyrls v1.15.0.
+- **The `migrate rls` report lists `SECURITY DEFINER` functions that write to FORCEd tables**, with
+  the fix: under FORCE they are filtered by the caller's policies and cross-user writes fail with
+  `42501`. The CLI summary prints the count under Warnings.
+- **`capydb migrate rls --target capydb|postgres`** (default `capydb`). `--role-model split` is
+  refused up front on CapyDB, before any source is read, naming why: it creates a non-owning
+  runtime role and a `BYPASSRLS` role, which a CapyDB database role cannot create. Pass
+  `--target postgres` to build a split bundle for another Postgres - previously the CLI wrote a
+  split bundle that stopped at its first `CREATE ROLE` on CapyDB.
 
 ### Changed
 
+- capyrls v1.14.0 -> v1.15.0.
 - **`capydb init drizzle` no longer filters `pg_stat_statements_info`.** Every cell now keeps
   that view out of tenant reach, so drizzle-kit never sees it; the generated `drizzle.config.ts`
   excludes only `pg_stat_statements`. Existing configs that still list both keep working.

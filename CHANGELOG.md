@@ -29,6 +29,11 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   positional arguments, and uses the global `--api-url` instead of redeclaring it. Its help now says
   what it does today: the control plane rejects every request until Cloudflare onboarding completes,
   and the flag names may still change then.
+- **The Docker image is published as `ghcr.io/capydatabase/capydb-cli:<version>` and `:latest`
+  only.** The `<version>-amd64` / `<version>-arm64` tags pointed at the same multi-platform image
+  as `<version>` (both architectures), so they named something they were not; Docker picks the
+  platform on pull. Images for v1.4.0-v1.8.0 remain as published (v1.3.0 has none: its release run
+  failed before the build).
 
 ### Added
 

@@ -164,11 +164,12 @@ dockers_v2:
     dockerfile: Dockerfile.goreleaser
     images:
       - "{{ .Env.IMAGE_REPOSITORY }}"
+    # One multi-platform image per tag; Docker picks the platform on pull.
+    # dockers_v2 applies every tag to the same multi-arch index, so
+    # "-amd64"/"-arm64" tags would name images that are not single-arch.
     tags:
       - "{{ .Version }}"
       - "latest"
-      - "{{ .Version }}-amd64"
-      - "{{ .Version }}-arm64"
     platforms:
       - linux/amd64
       - linux/arm64

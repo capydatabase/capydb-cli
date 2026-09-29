@@ -48,6 +48,11 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   runs the package.json `db:seed`/`seed` script, Prisma's `prisma.seed`, or a conventional
   `seed.sql`. A production project needs `--confirm-production` (or the typed project name) and
   gets a restore point first, so the seed can be undone; `--dry-run` shows what would run.
+- **`capydb create --template <name>`** applies a built-in starter after the project is created
+  and linked: `drizzle-starter` (users and posts, with sample rows) or `auth-starter` (users,
+  OAuth accounts, sessions and verification tokens, one demo user); `empty` is the default.
+  Schema and seed run in one transaction; if that fails the project still exists, nothing was
+  applied, and the SQL is saved next to you for `capydb seed`.
 
 ### Changed
 

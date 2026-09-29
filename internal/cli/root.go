@@ -108,7 +108,7 @@ Exit codes:
 	root.AddCommand(application.newWhoamiCommand())
 	root.AddCommand(application.newStatusCommand())
 	root.AddCommand(application.newAuthCommand())
-	root.AddCommand(application.newCreateCommand())
+	root.AddCommand(application.withCreateTemplate(application.newCreateCommand()))
 	root.AddCommand(application.newLinkCommand())
 	root.AddCommand(application.newUnlinkCommand())
 	root.AddCommand(application.newEnvCommand())

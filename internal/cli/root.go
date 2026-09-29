@@ -112,7 +112,7 @@ Exit codes:
 	root.AddCommand(application.withCreateTemplate(application.newCreateCommand()))
 	root.AddCommand(application.newLinkCommand())
 	root.AddCommand(application.newUnlinkCommand())
-	root.AddCommand(application.newEnvCommand())
+	root.AddCommand(application.withEnvSync(application.newEnvCommand()))
 	root.AddCommand(application.newInitCommand())
 	root.AddCommand(application.newGenerateCommand())
 	root.AddCommand(application.newSchemaCommand())

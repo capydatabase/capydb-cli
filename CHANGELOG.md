@@ -182,6 +182,12 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   extension the project lacks or the project already has tables. The policy bundle and report go
   to `--rls-out` (default `capyrls/`); `--uid-type text` for non-uuid user ids; `--dry-run` shows
   the plan. Needs `pg_restore` (at least the dump's major) and `psql`.
+- **`capydb env sync vercel|netlify`** pushes the project's connection env vars to a Vercel project
+  or Netlify site through CapyDB's token-connect integration and waits for the first push. The
+  target comes from `.vercel/project.json` / `.netlify/state.json` (written by `vercel link` /
+  `netlify link`) or `--vercel-project`/`--team` / `--site`; the token from `--token`,
+  `VERCEL_TOKEN` or `NETLIFY_AUTH_TOKEN`. CapyDB stores the token encrypted and pushes again on
+  every credential rotation; `--preview-branches` adds a preview database per branch deployment.
 
 
 ## [1.8.0] - 2026-09-26

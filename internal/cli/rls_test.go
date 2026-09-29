@@ -86,19 +86,30 @@ func TestMigrateRLSFindsSupabaseMigrationsAndConverts(t *testing.T) {
 	}
 }
 
-// CapyDB is the default target, and a CapyDB database role cannot create the
-// split model's roles: refuse before reading anything, and name the way out.
-func TestMigrateRLSSplitRoleModelRefusedOnCapyDB(t *testing.T) {
+// CapyDB is the default target: the split model there grants to the
+// platform's runtime role, checking it exists, and creates no roles.
+func TestMigrateRLSSplitRoleModelOnCapyDB(t *testing.T) {
 	dir := writeRLSFixture(t)
-	out := filepath.Join(dir, "capyrls")
 	for _, mode := range []string{"vanilla", "supabase-compat"} {
-		_, err := runCommand(t, dir, "migrate", "rls", dir, "--role-model", "split", "--mode", mode, "--out", out)
-		if err == nil || !strings.Contains(err.Error(), "cannot be applied on CapyDB") || !strings.Contains(err.Error(), "--target postgres") {
-			t.Fatalf("mode %s: expected the split-on-CapyDB refusal, got %v", mode, err)
+		out := filepath.Join(dir, "capyrls-"+mode)
+		output, err := runCommand(t, dir, "migrate", "rls", dir, "--role-model", "split", "--mode", mode, "--out", out)
+		if err != nil {
+			t.Fatalf("mode %s: migrate rls: %v\n%s", mode, err, output)
 		}
-	}
-	if _, err := os.Stat(out); !os.IsNotExist(err) {
-		t.Errorf("refused conversion still wrote %s", out)
+		roles, err := os.ReadFile(filepath.Join(out, "capyrls_02_roles.sql"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, want := range []string{"rolname = 'app_user'", "roles/app", "grant usage on schema public to app_user;"} {
+			if !strings.Contains(string(roles), want) {
+				t.Errorf("mode %s: roles file missing %q:\n%s", mode, want, roles)
+			}
+		}
+		for _, unwanted := range []string{"create role ", "app_service"} {
+			if strings.Contains(string(roles), unwanted) {
+				t.Errorf("mode %s: roles file contains %q; a CapyDB database role cannot create roles:\n%s", mode, unwanted, roles)
+			}
+		}
 	}
 }
 

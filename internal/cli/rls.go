@@ -25,10 +25,12 @@ import (
 //
 // The default role model here is "single", unlike standalone capyrls:
 // a CapyDB project connects as the credential that owns its tables, so the
-// working setup is FORCE ROW LEVEL SECURITY plus the service escape, not a
-// separate runtime role. The default target is CapyDB, which makes the engine
-// refuse the split role model up front: it needs roles a CapyDB database role
-// can neither create nor find (every CapyDB login acts as the owner).
+// working setup is FORCE ROW LEVEL SECURITY plus the service escape, and needs
+// nothing enabled. The default target is CapyDB, where the split role model
+// creates no roles: it grants to app_user, the runtime role the platform
+// creates once the project enables it, and the owner is the service path. The
+// engine refuses a custom --app-role there (it could not be created); this
+// command has no such flag, so that cannot happen here.
 
 func (a *app) newMigrateRLSCommand() *cobra.Command {
 	var (
@@ -69,12 +71,19 @@ the report names every uuid column the user id is compared to - change those
 to text before applying, or the apply stops with "operator does not exist:
 text = uuid".
 
-The bundle is for CapyDB by default, where the working role model is
+The bundle is for CapyDB by default, where the default role model is
 "single": the app connects as the credential that owns the tables, so the
 bundle FORCEs row security and adds a service escape (app.role = 'service', or
-claims with "role": "service_role" in compat mode). --role-model split is
-refused there - it creates roles a CapyDB database role cannot create. Pass
---target postgres to build a split bundle for another Postgres.
+claims with "role": "service_role" in compat mode).
+
+--role-model split separates the two instead: request traffic runs as
+app_user, the runtime role CapyDB creates once the project enables it
+(POST /v1/projects/{id}/roles/app), and row security applies to it; the owner
+bypasses row security (nothing is FORCEd) and is the service path for
+migrations and admin jobs. The bundle creates no roles - it checks app_user
+exists, then grants to it - and anon/authenticated become predicates on
+app_user. Pass --target postgres to build a split bundle for another Postgres,
+which creates its own app_user/app_service roles.
 
 Policies that reference auth.users or Supabase-managed schemas are surfaced
 in the report, not silently dropped, and so are SECURITY DEFINER functions
@@ -121,12 +130,6 @@ that write to tables the bundle FORCEs (they no longer bypass row security).`,
 			default:
 				return usageErrorf("unknown --target %q (capydb or postgres)", target)
 			}
-			// Checked before any source is read or connected to: the engine
-			// would refuse the same combination, but only after introspection.
-			if options.Target == capyrls.TargetCapyDB && options.RoleModel == capyrls.RoleSplit {
-				return usageErrorf("%v (building for another Postgres? pass --target postgres)", capyrls.ErrSplitRolesUnsupported)
-			}
-
 			var result *capyrls.Result
 			var sourceDescription string
 			if url := strings.TrimSpace(sourceURL); url != "" {
@@ -173,11 +176,11 @@ that write to tables the bundle FORCEs (they no longer bypass row security).`,
 	}
 
 	command.Flags().StringVar(&mode, "mode", "vanilla", "Output convention: vanilla (app.* GUC accessors) or supabase-compat (auth.* shim)")
-	command.Flags().StringVar(&roleModel, "role-model", "single", "single: FORCE RLS, app connects as owner (CapyDB default); split: app_user/app_service roles (needs --target postgres)")
+	command.Flags().StringVar(&roleModel, "role-model", "single", "single: FORCE RLS, app connects as owner (default); split: runtime role app_user, RLS applies to it (on CapyDB the project's runtime role must be enabled; elsewhere creates app_user/app_service)")
 	command.Flags().BoolVar(&keepForAll, "keep-for-all", false, "Keep FOR ALL policies instead of splitting them per command")
 	command.Flags().BoolVar(&noServiceEscape, "no-service-escape", false, "Single role model: skip the service escape (app.role = 'service', or claims role service_role in compat mode)")
 	command.Flags().StringVar(&uidType, "uid-type", "uuid", "Type the user-id accessor returns: uuid (Supabase's), or text for non-uuid subjects such as Clerk's user_... ids")
-	command.Flags().StringVar(&target, "target", "capydb", "Platform the bundle is for: capydb, or postgres for any other Postgres (allows --role-model split)")
+	command.Flags().StringVar(&target, "target", "capydb", "Platform the bundle is for: capydb (creates no roles), or postgres for any other Postgres (split creates its own roles)")
 	command.Flags().StringVar(&outDir, "out", "capyrls", "Directory to write the SQL bundle and report into")
 	command.Flags().StringVar(&sourceURL, "source-url", "", "Introspect the LIVE database (direct endpoint, read-only) instead of parsing SQL files")
 	return command

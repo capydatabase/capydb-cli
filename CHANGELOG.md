@@ -145,6 +145,15 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   batches are one transaction, so the semantics match. Batches built from variables, spreads,
   statements containing `await`, a client reached through a property (`this.db`), or files with
   syntax the codemod cannot read with certainty (regex literals) are reported with the reason.
+- **`capydb init prisma` and `capydb init kysely`** next to `init drizzle`, and `capydb init --orm
+  <drizzle|prisma|kysely>` as the same thing. Prisma targets ORM 7: `prisma.config.ts` points
+  migrations and `db pull` at `DATABASE_DIRECT_URL`, `prisma/schema.prisma` uses the `prisma-client`
+  generator, and `src/db.ts` builds the client on `@prisma/adapter-pg` over the pooled
+  `DATABASE_URL`; the install hint pins `@7` because the `prisma` CLI's latest tag is an 8.x release
+  candidate without `db pull`. Kysely gets `src/db/database.types.ts` from `capydb generate types`
+  and a client that maps the generated Row/Insert/Update types onto Kysely's column types
+  (defaults optional on insert, generated columns not writable), tables outside `public` as
+  `"schema.table"`. `--json` output of `init` now includes `orm`.
 
 
 ## [1.8.0] - 2026-09-26

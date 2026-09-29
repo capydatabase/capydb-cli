@@ -318,7 +318,9 @@ export default defineConfig({
     // Migrations and introspection go over the direct connection: the pooled
     // URL (:6432, transaction-mode PgBouncer) cannot hold the session state
     // and advisory locks prisma migrate needs. The client uses the pooled URL.
-    url: process.env.DATABASE_DIRECT_URL ?? env("DATABASE_URL"),
+    // DATABASE_DIRECT_URL is what capydb link writes locally; the Vercel,
+    // Netlify and Cloudflare integrations push DATABASE_URL_UNPOOLED.
+    url: process.env.DATABASE_DIRECT_URL ?? process.env.DATABASE_URL_UNPOOLED ?? env("DATABASE_URL"),
   },
 });
 `

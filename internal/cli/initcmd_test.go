@@ -36,7 +36,7 @@ func TestInitPrismaScaffoldsV7Config(t *testing.T) {
 	schema := readTestFile(t, filepath.Join(dir, "prisma", "schema.prisma"))
 	client := readTestFile(t, filepath.Join(dir, "src", "db.ts"))
 	for _, check := range []struct{ file, content, want string }{
-		{"prisma.config.ts", config, `url: process.env.DATABASE_DIRECT_URL ?? env("DATABASE_URL")`},
+		{"prisma.config.ts", config, `url: process.env.DATABASE_DIRECT_URL ?? process.env.DATABASE_URL_UNPOOLED ?? env("DATABASE_URL")`},
 		{"prisma.config.ts", config, `migrations: { path: "prisma/migrations" }`},
 		{"schema.prisma", schema, `output   = "../src/generated/prisma"`},
 		{"schema.prisma", schema, `provider = "prisma-client"`},

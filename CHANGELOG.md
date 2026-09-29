@@ -147,7 +147,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   syntax the codemod cannot read with certainty (regex literals) are reported with the reason.
 - **`capydb init prisma` and `capydb init kysely`** next to `init drizzle`, and `capydb init --orm
   <drizzle|prisma|kysely>` as the same thing. Prisma targets ORM 7: `prisma.config.ts` points
-  migrations and `db pull` at `DATABASE_DIRECT_URL`, `prisma/schema.prisma` uses the `prisma-client`
+  migrations and `db pull` at `DATABASE_DIRECT_URL` (falling back to the integrations'
+  `DATABASE_URL_UNPOOLED`), `prisma/schema.prisma` uses the `prisma-client`
   generator, and `src/db.ts` builds the client on `@prisma/adapter-pg` over the pooled
   `DATABASE_URL`; the install hint pins `@7` because the `prisma` CLI's latest tag is an 8.x release
   candidate without `db pull`. Kysely gets `src/db/database.types.ts` from `capydb generate types`

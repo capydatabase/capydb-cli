@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,114 +10,237 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/capydatabase/capydb-cli/internal/api"
+	"github.com/capydatabase/capydb-cli/internal/typegen"
 )
 
 // newGenerateCommand groups the code generators that render the linked
-// database's live schema as source code. Generation happens server-side (one
-// implementation shared with the API and MCP server); the CLI fetches the
-// result and writes the file.
+// database's live schema as source code. TypeScript, Zod and Drizzle are
+// generated server-side (one implementation shared with the API and MCP
+// server); Go and Python are rendered locally from the same schema document
+// until they move next to the others.
 func (a *app) newGenerateCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "generate",
 		Short: "Generate code from the database schema",
-		Long:  "Generates typed source code (TypeScript interfaces, Zod schemas, or a Drizzle schema) from the live schema of the linked project or a preview database.",
+		Long:  "Generates typed source code (TypeScript interfaces, Zod schemas, a Drizzle schema, Go structs, or Python models) from the live schema of the linked project or a preview database.",
 	}
-	command.AddCommand(a.newGenerateSubcommand(
-		"types",
-		"Generate TypeScript types from the database schema",
-		"typescript",
-		true,
-	))
-	command.AddCommand(a.newGenerateSubcommand(
-		"zod",
-		"Generate Zod schemas from the database schema",
-		"zod",
-		false,
-	))
-	command.AddCommand(a.newGenerateSubcommand(
-		"drizzle",
-		"Generate a Drizzle schema from the database schema",
-		"drizzle",
-		false,
-	))
+	command.AddCommand(a.newGenerateSubcommand(generatorSpec{
+		use: "types", short: "Generate TypeScript types from the database schema", language: "typescript",
+	}))
+	command.AddCommand(a.newGenerateSubcommand(generatorSpec{
+		use: "zod", short: "Generate Zod schemas from the database schema", language: "zod",
+	}))
+	command.AddCommand(a.newGenerateSubcommand(generatorSpec{
+		use: "drizzle", short: "Generate a Drizzle schema from the database schema", language: "drizzle",
+	}))
+	command.AddCommand(a.newGenerateSubcommand(generatorSpec{
+		use: "go", short: "Generate Go structs and column constants from the database schema", language: "go", local: true,
+	}))
+	command.AddCommand(a.newGenerateSubcommand(generatorSpec{
+		use: "python", short: "Generate Python dataclasses or pydantic models from the database schema", language: "python", local: true,
+	}))
 	return command
 }
 
-func (a *app) newGenerateSubcommand(use, short, language string, withStyle bool) *cobra.Command {
-	var (
-		outPath    string
-		print      bool
-		previewID  string
-		projectRef string
-		style      string
-	)
+// generatorSpec describes one `generate` subcommand. local generators render
+// the schema document in the CLI; the rest ask the control plane.
+type generatorSpec struct {
+	use      string
+	short    string
+	language string
+	local    bool
+}
+
+// generateOptions are the per-invocation flag values.
+type generateOptions struct {
+	goPackage   string
+	outPath     string
+	print       bool
+	previewID   string
+	projectRef  string
+	pythonStyle string
+	style       string
+	watch       bool
+	watchOpts   schemaWatchOptions
+}
+
+func (a *app) newGenerateSubcommand(spec generatorSpec) *cobra.Command {
+	var options generateOptions
 
 	command := &cobra.Command{
-		Use:   use,
-		Short: short,
+		Use:   spec.use,
+		Short: spec.short,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := cmd.Context()
+			if err := validateGenerateOptions(spec, options); err != nil {
+				return err
+			}
 			client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
 			if err != nil {
 				return err
 			}
-
-			var types api.GeneratedTypes
-			if trimmed := strings.TrimSpace(previewID); trimmed != "" {
-				types, err = client.GeneratePreviewSchemaTypes(ctx, trimmed, language, style)
-			} else {
-				var project api.Project
-				project, err = a.resolveProject(ctx, client, projectRef)
-				if err != nil {
-					return err
-				}
-				types, err = client.GenerateProjectSchemaTypes(ctx, project.ID, language, style)
-			}
+			target, err := a.resolveSchemaTarget(cmd.Context(), client, options.previewID, options.projectRef)
 			if err != nil {
-				return fmt.Errorf("generate %s: %w", language, err)
+				return err
 			}
-
-			if print {
-				if a.jsonOutput() {
-					return printJSON(cmd.OutOrStdout(), types)
-				}
-				_, _ = fmt.Fprint(cmd.OutOrStdout(), types.Content)
-				return nil
+			if options.watch {
+				return a.runGenerateWatch(cmd, client, target, spec, options)
 			}
-
-			target := strings.TrimSpace(outPath)
-			if target == "" {
-				target = types.Filename
+			types, err := renderGenerated(cmd.Context(), client, target, spec, options, nil)
+			if err != nil {
+				return err
 			}
-			if dir := filepath.Dir(target); dir != "." && dir != "" {
-				if err := os.MkdirAll(dir, 0o755); err != nil {
-					return fmt.Errorf("create output directory: %w", err)
-				}
-			}
-			if err := os.WriteFile(target, []byte(types.Content), 0o644); err != nil {
-				return fmt.Errorf("write %s: %w", target, err)
-			}
-
-			if a.jsonOutput() {
-				return printJSON(cmd.OutOrStdout(), map[string]any{
-					"language": types.Language,
-					"path":     target,
-					"style":    types.Style,
-				})
-			}
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Wrote %s\n", target)
-			return nil
+			return a.emitGenerated(cmd, types, options)
 		},
 	}
 
 	// No -o shorthand: the root command's persistent --output (-o) owns it.
-	command.Flags().StringVar(&outPath, "out", "", "Output file path (defaults to the generator's suggested filename)")
-	command.Flags().BoolVar(&print, "print", false, "Print the generated code to stdout instead of writing a file")
-	command.Flags().StringVar(&previewID, "preview", "", "Generate from a preview database instead of the project database")
-	command.Flags().StringVar(&projectRef, "project", "", "Project id, slug, or name")
-	if withStyle {
-		command.Flags().StringVar(&style, "style", "", "TypeScript output shape: capydb (default) or supabase (compatible with supabase-js generics)")
+	command.Flags().StringVar(&options.outPath, "out", "", "Output file path (defaults to the generator's suggested filename)")
+	command.Flags().BoolVar(&options.print, "print", false, "Print the generated code to stdout instead of writing a file")
+	command.Flags().StringVar(&options.previewID, "preview", "", "Generate from a preview database instead of the project database")
+	command.Flags().StringVar(&options.projectRef, "project", "", "Project id, slug, or name")
+	command.Flags().BoolVar(&options.watch, "watch", false, "Keep running and regenerate whenever the database schema changes")
+	command.Flags().DurationVar(&options.watchOpts.interval, "watch-interval", defaultWatchInterval, "With --watch: how often to check for schema changes (backs off while nothing changes)")
+	switch spec.language {
+	case "typescript":
+		command.Flags().StringVar(&options.style, "style", "", "TypeScript output shape: capydb (default) or supabase (compatible with supabase-js generics)")
+	case "go":
+		command.Flags().StringVar(&options.goPackage, "package", "db", "Go package name for the generated file")
+	case "python":
+		command.Flags().StringVar(&options.pythonStyle, "style", typegen.PythonStyleDataclass, "Python output shape: dataclass (standard library) or pydantic")
 	}
 	return command
+}
+
+func validateGenerateOptions(spec generatorSpec, options generateOptions) error {
+	if options.watch && options.print {
+		return usageErrorf("--watch writes a file on every change; it cannot be combined with --print")
+	}
+	switch spec.language {
+	case "go":
+		if !typegen.ValidGoPackage(options.goPackage) {
+			return usageErrorf("--package %q is not a valid Go package name", options.goPackage)
+		}
+	case "python":
+		if options.pythonStyle != typegen.PythonStyleDataclass && options.pythonStyle != typegen.PythonStylePydantic {
+			return usageErrorf("--style must be %s or %s", typegen.PythonStyleDataclass, typegen.PythonStylePydantic)
+		}
+	}
+	return nil
+}
+
+// schemaTarget is what a generator reads: a project database or a preview.
+type schemaTarget struct {
+	project   api.Project
+	previewID string
+}
+
+func (a *app) resolveSchemaTarget(ctx context.Context, client *api.Client, previewID, projectRef string) (schemaTarget, error) {
+	if trimmed := strings.TrimSpace(previewID); trimmed != "" {
+		return schemaTarget{previewID: trimmed}, nil
+	}
+	project, err := a.resolveProject(ctx, client, projectRef)
+	if err != nil {
+		return schemaTarget{}, err
+	}
+	return schemaTarget{project: project}, nil
+}
+
+func fetchTargetSchema(ctx context.Context, client *api.Client, target schemaTarget) (api.DatabaseSchema, error) {
+	if target.previewID != "" {
+		schema, err := client.GetPreviewSchema(ctx, target.previewID)
+		if err != nil {
+			return api.DatabaseSchema{}, fmt.Errorf("fetch preview schema: %w", err)
+		}
+		return schema, nil
+	}
+	schema, err := client.GetProjectSchema(ctx, target.project.ID)
+	if err != nil {
+		return api.DatabaseSchema{}, fmt.Errorf("fetch project schema: %w", err)
+	}
+	return schema, nil
+}
+
+// renderGenerated produces the file for spec. schema, when non-nil, is the
+// already-fetched document (watch mode) so local generators do not fetch it
+// twice; server-side generators always ask the control plane.
+func renderGenerated(ctx context.Context, client *api.Client, target schemaTarget, spec generatorSpec, options generateOptions, schema *api.DatabaseSchema) (api.GeneratedTypes, error) {
+	if !spec.local {
+		var types api.GeneratedTypes
+		var err error
+		if target.previewID != "" {
+			types, err = client.GeneratePreviewSchemaTypes(ctx, target.previewID, spec.language, options.style)
+		} else {
+			types, err = client.GenerateProjectSchemaTypes(ctx, target.project.ID, spec.language, options.style)
+		}
+		if err != nil {
+			return api.GeneratedTypes{}, fmt.Errorf("generate %s: %w", spec.language, err)
+		}
+		return types, nil
+	}
+
+	if schema == nil {
+		fetched, err := fetchTargetSchema(ctx, client, target)
+		if err != nil {
+			return api.GeneratedTypes{}, err
+		}
+		schema = &fetched
+	}
+	switch spec.language {
+	case "go":
+		content, err := typegen.GenerateGo(*schema, options.goPackage)
+		if err != nil {
+			return api.GeneratedTypes{}, fmt.Errorf("generate go: %w", err)
+		}
+		return api.GeneratedTypes{Content: content, Filename: typegen.GoFilename, Language: "go"}, nil
+	case "python":
+		content, err := typegen.GeneratePython(*schema, options.pythonStyle)
+		if err != nil {
+			return api.GeneratedTypes{}, fmt.Errorf("generate python: %w", err)
+		}
+		return api.GeneratedTypes{Content: content, Filename: typegen.PythonFilename, Language: "python", Style: options.pythonStyle}, nil
+	default:
+		return api.GeneratedTypes{}, fmt.Errorf("no local generator for %s", spec.language)
+	}
+}
+
+// writeGenerated writes the file and returns the path it went to.
+func writeGenerated(types api.GeneratedTypes, outPath string) (string, error) {
+	target := strings.TrimSpace(outPath)
+	if target == "" {
+		target = types.Filename
+	}
+	if dir := filepath.Dir(target); dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			return "", fmt.Errorf("create output directory: %w", err)
+		}
+	}
+	if err := os.WriteFile(target, []byte(types.Content), 0o644); err != nil {
+		return "", fmt.Errorf("write %s: %w", target, err)
+	}
+	return target, nil
+}
+
+func (a *app) emitGenerated(cmd *cobra.Command, types api.GeneratedTypes, options generateOptions) error {
+	if options.print {
+		if a.jsonOutput() {
+			return printJSON(cmd.OutOrStdout(), types)
+		}
+		_, _ = fmt.Fprint(cmd.OutOrStdout(), types.Content)
+		return nil
+	}
+
+	target, err := writeGenerated(types, options.outPath)
+	if err != nil {
+		return err
+	}
+	if a.jsonOutput() {
+		return printJSON(cmd.OutOrStdout(), map[string]any{
+			"language": types.Language,
+			"path":     target,
+			"style":    types.Style,
+		})
+	}
+	_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "Wrote %s\n", target)
+	return nil
 }

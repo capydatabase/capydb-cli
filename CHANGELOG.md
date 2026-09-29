@@ -18,6 +18,17 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   and the report names each uuid column the user id is compared to or defaulted into - change those
   to `text` before applying, or the apply stops with `operator does not exist: text = uuid`. The
   default stays `uuid`. Built on capyrls v1.14.0.
+- **`capydb generate go` and `capydb generate python`.** Go structs (with `db`/`json` tags, a string
+  type plus constants per enum, and schema/table/column name constants) and Python models (frozen
+  dataclasses by default, pydantic with `--style pydantic`) rendered from the same schema document
+  as the TypeScript generators. Nullable columns are pointers in Go and `T | None` in Python;
+  `numeric` stays a string in Go so no precision is lost; types the generator does not know are
+  `any`/`Any`. `--package` sets the Go package (default `db`).
+- **`capydb generate <language> --watch`** keeps running and rewrites the file whenever the
+  schema changes. It checks every `--watch-interval` (default 5s), backs off to once a minute
+  while nothing changes, and never reads a paused database - reading the schema would wake it.
+  Note that while the database is awake, each check counts as activity. With `--output json` each
+  regeneration prints one JSON line.
 
 ### Changed
 

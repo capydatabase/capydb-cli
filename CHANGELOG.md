@@ -36,6 +36,26 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   settings page in the dashboard, passed with `--approval-token` or `CAPYDB_APPROVAL_TOKEN`; without
   one the command stops before any destructive call and prints the settings page URL.
   Non-production projects need only the confirmation. `--wait` follows the deletion job.
+- **`capydb import` and `capydb import preflight` stop a source CapyDB cannot reach, before any API
+  call, and say what works instead.** A source on `localhost`, a unix socket, a private network
+  (RFC 1918 / IPv6 ULA), CGNAT/Tailscale (`100.64.0.0/10`), link-local, `*.internal`, or `*.local` -
+  directly or through what the name resolves to on this machine - used to fail with the control
+  plane's generic "host is not allowed". The CLI now explains that imports run from CapyDB's network
+  and prints the two commands that work: `pg_dump -Fc ... -f source.dump` (password masked) and
+  `capydb import --file source.dump`. `--follow` explains that streaming needs a reachable source;
+  the preflight points at `capydb migrate scan --source-url` for a local check. Because the source
+  is reachable from here, it also compares the local `pg_dump` major with the source's.
+- **Import preflight warns when the local `pg_dump` major differs from the source's.** An older
+  `pg_dump` refuses to dump a newer server; a newer one dumps fine but can write settings an older
+  restore target rejects. The note names the direction and the pinned client to use
+  (`docker run --rm postgres:<major> pg_dump`). It is advisory - the server-side import uses its
+  own client - and appears only when `pg_dump` is on PATH.
+- **Supabase sources get the project's real pooler host.** With `SUPABASE_ACCESS_TOKEN` set, `import`
+  and `import preflight` read the project's pooler from the Supabase Management API and warn when
+  the connection string uses the wrong `aws-0` / `aws-1` prefix, the IPv6-only direct host, or the
+  transaction pooler port 6543, naming the session pooler (`<host>:5432`) to use instead. Without a
+  token the preflight explains where to copy the Session pooler string and prints the `curl` that
+  reads it.
 
 ## [1.8.0] - 2026-09-26
 

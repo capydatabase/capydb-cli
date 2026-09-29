@@ -31,9 +31,9 @@ export default defineConfig({
   // and platform objects must not be offered for DROP.
   schemaFilter: ["public"],
   // pg_stat_statements powers the cell's slow-query view and lives in public on
-  // older cells; its views are extension-owned, so drizzle-kit would try to
-  // DROP them on every push. Exclude them so push/pull leaves them alone.
-  tablesFilter: ["!pg_stat_statements", "!pg_stat_statements_info"],
+  // older cells; its view is extension-owned, so drizzle-kit would try to DROP
+  // it on every push. Exclude it so push/pull leaves it alone.
+  tablesFilter: ["!pg_stat_statements"],
   dbCredentials: {
     // DDL and migrations go over the direct connection; the pooled URL
     // (:6432, transaction-mode PgBouncer) is for application traffic only.

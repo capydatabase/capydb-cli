@@ -18,6 +18,11 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   directory must switch to `capydb link`. `--env-file` and `--overwrite-env` now fail with a usage
   error, but `capydb connect --project <p>` is valid for both commands and now opens psql instead of
   writing env vars - search scripts for `capydb connect`.
+- **`capydb env pull` no longer replaces another provider's value without a word.** It used to
+  overwrite every key it writes silently. It still refreshes values that point at the same CapyDB
+  host (a credential rotation) silently; a value pointing anywhere else - typically a `DIRECT_URL`
+  left over from a previous provider - is prompted for on a terminal and announced with a warning
+  in CI before it is replaced, the same as `link` and `create`.
 
 ### Added
 
@@ -64,6 +69,10 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   source. An unreachable `--source-url` fails before anything is created. Without the flag, when the
   env file `create` is about to write already points `DATABASE_URL` / `DIRECT_URL` at a database
   outside CapyDB, `create` says so and names the flag; it does not connect to that database.
+- **`link`, `create`, `env pull`, and `ephemeral create` write `DIRECT_URL` for every stack.** It is the
+  name Prisma's `directUrl` and most ORM and provider guides use for the direct connection; it was
+  written only for Prisma projects. It carries the same value as `DATABASE_DIRECT_URL`, which stays.
+  `DATABASE_URL` keeps its per-stack default (pooled for JS/TS, direct for Go, Python, and Ruby).
 
 ## [1.8.0] - 2026-09-26
 

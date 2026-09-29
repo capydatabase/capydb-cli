@@ -160,10 +160,11 @@ Saved locally:
 
 Written into the app:
 
-- `DATABASE_URL`
-- `DATABASE_DIRECT_URL`
+- `DATABASE_URL` (pooled for JS/TS stacks, direct for Go, Python, and Ruby)
+- `DIRECT_URL` and `DATABASE_DIRECT_URL` (the direct connection, for migrations; `DIRECT_URL` is the name Prisma and most ORM guides use)
 - `DATABASE_POOL_URL`
-- framework-specific aliases such as `DIRECT_URL` for Prisma
+
+`capydb env pull` refreshes these silently when they already point at the same CapyDB host (a credential rotation); a value pointing anywhere else is announced before it is replaced, and on a terminal you are asked first.
 
 ## Detected profiles
 

@@ -206,6 +206,14 @@ func BuildEnvPlan(detection Detection, directURL, pooledURL string) EnvPlan {
 		}
 	}
 
+	// DIRECT_URL is the name ORM docs and other providers use for the
+	// unpooled connection (Prisma's directUrl, the Neon/Supabase guides), so
+	// it is written for every stack next to CapyDB's own DATABASE_DIRECT_URL.
+	// DATABASE_URL keeps its per-stack default above.
+	if directURL != "" {
+		plan.Vars["DIRECT_URL"] = directURL
+	}
+
 	return plan
 }
 
@@ -218,7 +226,7 @@ func BuildNextSteps(detection Detection) []string {
 		}
 	case DatabaseLayerDrizzle:
 		return []string{
-			"Drizzle detected: use DATABASE_URL for app traffic and DATABASE_DIRECT_URL for migration/admin work if needed.",
+			"Drizzle detected: use DATABASE_URL for app traffic and DIRECT_URL (same value as DATABASE_DIRECT_URL) for drizzle-kit migrations.",
 			"Typical next step: drizzle-kit push or your usual migration command.",
 		}
 	case DatabaseLayerPG:

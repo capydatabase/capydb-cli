@@ -872,10 +872,17 @@ func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID 
 
 	// forceOverwrite (--overwrite-env) skips the interactive conflict prompt:
 	// a nil resolver overwrites silently, which is what migration/automation
-	// flows want when repointing DATABASE_URL from another provider.
+	// flows want when repointing DATABASE_URL from another provider. `env
+	// pull` (confirmOverwrite=false) refreshes CapyDB's own values silently
+	// but treats a value pointing at another host as the user's own.
 	var resolver envfile.ConflictResolver
-	if confirmOverwrite && !forceOverwrite {
+	switch {
+	case forceOverwrite:
+		// nil resolver: overwrite without asking.
+	case confirmOverwrite:
 		resolver = a.envOverwriteResolver(cmd)
+	default:
+		resolver = refreshResolver(a.envOverwriteResolver(cmd))
 	}
 	if err := envfile.UpsertWithResolver(envAbsPath, plan.Vars, resolver); err != nil {
 		return err

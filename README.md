@@ -56,8 +56,8 @@ The CLI will:
 - `capydb login`
 - `capydb logout`
 - `capydb whoami`
-- `capydb status [--remote] [--project <ref>]`
-- `capydb doctor` (checks config, API reachability, auth, the local project link, and psql; non-zero exit when any check fails)
+- `capydb status [--remote] [--usage] [--project <ref>]` (`--usage`: plan, storage and connections against their limits, previews, backups)
+- `capydb doctor [--fix [--yes]]` (checks config, API reachability, auth, the local project link and its env vars, psql, env shadowing, database config, migration history; non-zero exit when any check fails. `--fix` applies the mechanical fixes first and asks before removing anything)
 - `capydb config show` (resolved config; the API key is shown only as a `****abcd` fingerprint)
 - `capydb version [--check]` (build info; `--check` compares against the latest GitHub release with a 5s timeout and degrades to a warning offline)
 - `capydb orgs list` / `capydb orgs switch <org-id|slug>` (the CLI stores credentials per organization; switch the active one)
@@ -66,6 +66,7 @@ The CLI will:
 - `capydb link`
 - `capydb unlink`
 - `capydb env pull`
+- `capydb env sync vercel|netlify` (push the connection env vars to a Vercel project or Netlify site and keep them in sync on credential rotation)
 - `capydb preview list`
 - `capydb preview create`
 - `capydb preview reset`
@@ -77,7 +78,9 @@ The CLI will:
 - `capydb ephemeral destroy` (end it early with its claim token and free its slot; the database is deleted within seconds)
 - `capydb backups list`
 - `capydb backups create`
-- `capydb import` / `capydb import preflight --source-url <url>` (checks size, Postgres version, and extension compatibility before any destructive step)
+- `capydb import` / `capydb import preflight --source-url <url>` (checks size, Postgres version, and extension compatibility before any destructive step; `--from supabase|neon|planetscale|railway|render|rds` fixes up the source URL)
+- `capydb import --data-only --source-url <url>` (copy rows into the existing schema in foreign-key order, from this machine, in one transaction)
+- `capydb import --from-supabase-dump <file>` (restore a Supabase dump: auth shim, schema, data, then the converted RLS policies, in one transaction)
 - `capydb restore`
 - `capydb jobs get`
 - `capydb studio`
@@ -91,7 +94,9 @@ The CLI will:
 - `capydb api-keys list|create|revoke` (`create` requires `--name` and `--scopes`; `--project` makes the key project-scoped; the plaintext key is shown exactly once)
 - `capydb webhooks list|create|delete|rotate-secret|deliveries` (organization webhook endpoints; signing secrets are shown exactly once)
 - `capydb kv status|create|credentials|rotate-token|flush|delete [--project <ref>]` (the project's K/V store - key-value and rate limiting. `create` and `rotate-token` are the only chance to capture the token - only its hash is stored - and accept `--write-env` to merge `CAPYKV_REST_URL`, `CAPYKV_REST_TOKEN` and `CAPYKV_REDIS_URL` (the RESP URL, which carries the token as its password) into the project's env file, in which case the token and the RESP URL are written there instead of printed; `credentials` cannot show the token, because only its hash is stored)
-- `capydb create` (create a project and link the current directory; `--postgres-version 16|17|18`, `--environment production|non_production`)
+- `capydb create` (create a project and link the current directory; `--postgres-version 16|17|18`, `--environment production|non_production`, `--template drizzle-starter|auth-starter`)
+- `capydb seed [file.sql] [--run "<command>"] [--preview <id>]` (load seed data; production needs `--confirm-production` and gets a restore point first)
+- `capydb db lint [--exit-code]` (missing primary keys, unindexed foreign keys, duplicate/unused/redundant indexes, bloat)
 - `capydb projects list|always-on|set-environment` (production projects stay awake by default; `always-on` and `set-environment` change the sleep policy)
 - `capydb credentials rotate [--grace-hours N]` (new database password; with a grace period, a new username too, and the old one keeps working until the window ends)
 - `capydb restore-points list|create|delete` (labelled points to restore to)
@@ -99,8 +104,8 @@ The CLI will:
 - `capydb logs [--follow]` (the project's database logs)
 - `capydb advisor indexes|index-hygiene` (index suggestions, and unused or redundant indexes)
 - `capydb upgrade preflight|minor` (Postgres version upgrades)
-- `capydb schema dump|diff` and `capydb generate types|zod|drizzle` (schema inspection and typed code from the live schema)
-- `capydb init drizzle` (scaffold a Drizzle setup for the linked project)
+- `capydb schema dump|diff` and `capydb generate types|zod|drizzle|go|python [--watch]` (schema inspection and typed code from the live schema; `--watch` regenerates on schema changes)
+- `capydb init drizzle|prisma|kysely` or `capydb init --orm <name>` (scaffold the ORM for the linked project)
 - `capydb migrate scan|deps|rls|verify-rls|squash|verify|codemod` (plan and check a move from another Postgres provider)
 - `capydb integrations env` (print the env payload an integration would inject)
 - `capydb completion bash|zsh|fish|powershell` (shell completions; release archives and the Homebrew cask ship pre-generated scripts)

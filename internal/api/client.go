@@ -1388,3 +1388,43 @@ func (c *Client) FlushKVStore(ctx context.Context, projectID string) (Job, error
 	}
 	return response.Job, nil
 }
+
+// ConnectVercelRequest and ConnectNetlifyRequest mirror the OpenAPI
+// components of the same names. They are declared here until capydbclient
+// mirrors them (its next release); move them there then and alias them like
+// the other request bodies.
+type ConnectVercelRequest struct {
+	PreviewBranches bool   `json:"preview_branches"`
+	TeamID          string `json:"team_id,omitempty"`
+	Token           string `json:"token"`
+	VercelProjectID string `json:"vercel_project_id"`
+}
+
+type ConnectNetlifyRequest struct {
+	PreviewBranches bool   `json:"preview_branches"`
+	SiteID          string `json:"site_id"`
+	Token           string `json:"token"`
+}
+
+// ConnectVercel binds the project to a Vercel project with the caller's token
+// (stored encrypted server-side) and queues an immediate push of the
+// connection env vars.
+func (c *Client) ConnectVercel(ctx context.Context, projectID string, request ConnectVercelRequest) (ProjectIntegration, Job, error) {
+	return c.connectIntegration(ctx, projectID, "vercel", request)
+}
+
+// ConnectNetlify is ConnectVercel for a Netlify site.
+func (c *Client) ConnectNetlify(ctx context.Context, projectID string, request ConnectNetlifyRequest) (ProjectIntegration, Job, error) {
+	return c.connectIntegration(ctx, projectID, "netlify", request)
+}
+
+func (c *Client) connectIntegration(ctx context.Context, projectID, provider string, request any) (ProjectIntegration, Job, error) {
+	var response struct {
+		Integration ProjectIntegration `json:"integration"`
+		Job         Job                `json:"job"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/integrations/"+provider+"/connect", request, &response); err != nil {
+		return ProjectIntegration{}, Job{}, err
+	}
+	return response.Integration, response.Job, nil
+}

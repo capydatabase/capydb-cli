@@ -103,6 +103,100 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   runtime role and a `BYPASSRLS` role, which a CapyDB database role cannot create. Pass
   `--target postgres` to build a split bundle for another Postgres - previously the CLI wrote a
   split bundle that stopped at its first `CREATE ROLE` on CapyDB.
+- **`capydb generate go` and `capydb generate python`.** Go structs (with `db`/`json` tags, a string
+  type plus constants per enum, and schema/table/column name constants) and Python models (frozen
+  dataclasses by default, pydantic with `--style pydantic`) rendered from the same schema document
+  as the TypeScript generators. Nullable columns are pointers in Go and `T | None` in Python;
+  `numeric` stays a string in Go so no precision is lost; types the generator does not know are
+  `any`/`Any`. `--package` sets the Go package (default `db`).
+- **`capydb generate <language> --watch`** keeps running and rewrites the file whenever the
+  schema changes. It checks every `--watch-interval` (default 5s), backs off to once a minute
+  while nothing changes, and never reads a paused database - reading the schema would wake it.
+  Note that while the database is awake, each check counts as activity. With `--output json` each
+  regeneration prints one JSON line.
+- **`capydb status --usage`**: what the project uses against its plan in plain language - plan and
+  billing status, storage and connections against their limits, active previews, retained backups
+  and their size, plus a note when storage or connections pass 80%. A paused database is not
+  read (reading storage would wake it); the storage limit is still shown.
+- **`capydb db lint`**: read-only schema and index checks - tables without a primary key (pointing
+  at a NOT NULL unique constraint that could be promoted), foreign keys with no index leading with
+  their columns, byte-for-byte duplicate indexes, unused and redundant indexes (from
+  `advisor index-hygiene`), and tables whose dead rows outgrow autovacuum. Every finding carries
+  the statement that fixes it. `--exit-code` fails on warnings for CI; `--preview` runs the
+  schema checks against a preview. The catalog checks go through the SQL endpoint, so the key
+  needs `projects:write` (the statement itself runs in a read-only transaction).
+- **`capydb seed`** loads seed data into the linked project, `--project`, or a `--preview`. A
+  `.sql` file runs through psql in one transaction (COPY blocks and meta-commands work; a failing
+  file leaves nothing behind). `--run "<command>"` runs any seeder (drizzle-seed, Prisma, a script)
+  with every database variable name - `DATABASE_URL`, `DATABASE_DIRECT_URL`, `DIRECT_URL`,
+  `CAPYDB_DATABASE_URL`, the linked names - set to the target's direct URL. With neither, it
+  runs the package.json `db:seed`/`seed` script, Prisma's `prisma.seed`, or a conventional
+  `seed.sql`. A production project needs `--confirm-production` (or the typed project name) and
+  gets a restore point first, so the seed can be undone; `--dry-run` shows what would run.
+- **`capydb create --template <name>`** applies a built-in starter after the project is created
+  and linked: `drizzle-starter` (users and posts, with sample rows) or `auth-starter` (users,
+  OAuth accounts, sessions and verification tokens, one demo user); `empty` is the default.
+  Schema and seed run in one transaction; if that fails the project still exists, nothing was
+  applied, and the SQL is saved next to you for `capydb seed`.
+- **`capydb migrate codemod neon` rewrites `db.batch([...])`** instead of only reporting it. In a
+  repo that uses drizzle's neon-http driver, a batch whose statements are written inline on the
+  client becomes `db.transaction(async (tx) => { ... })` that runs the same statements on `tx`, in
+  order, and returns the same tuple (typed with `as [typeof r0, ...]` in TypeScript) - neon-http
+  batches are one transaction, so the semantics match. Batches built from variables, spreads,
+  statements containing `await`, a client reached through a property (`this.db`), or files with
+  syntax the codemod cannot read with certainty (regex literals) are reported with the reason.
+- **`capydb init prisma` and `capydb init kysely`** next to `init drizzle`, and `capydb init --orm
+  <drizzle|prisma|kysely>` as the same thing. Prisma targets ORM 7: `prisma.config.ts` points
+  migrations and `db pull` at `DATABASE_DIRECT_URL` (falling back to the integrations'
+  `DATABASE_URL_UNPOOLED`), `prisma/schema.prisma` uses the `prisma-client`
+  generator, and `src/db.ts` builds the client on `@prisma/adapter-pg` over the pooled
+  `DATABASE_URL`; the install hint pins `@7` because the `prisma` CLI's latest tag is an 8.x release
+  candidate without `db pull`. Kysely gets `src/db/database.types.ts` from `capydb generate types`
+  and a client that maps the generated Row/Insert/Update types onto Kysely's column types
+  (defaults optional on insert, generated columns not writable), tables outside `public` as
+  `"schema.table"`. `init --output json` now includes `orm`.
+- **`capydb import --from <provider>`** (`supabase`, `neon`, `planetscale`, `railway`, `render`,
+  `rds`; `--from-neon` is shorthand) fixes up `--source-url` before the import and preflight see
+  it, printing every change: Neon's `-pooler` endpoint becomes the direct one, Supabase's
+  transaction pooler port 6543 becomes the session pooler 5432, PlanetScale's PgBouncer port 6432
+  becomes 5432, and `sslmode=require` is added when the URL leaves TLS to libpq's `prefer`.
+  Railway's `*.railway.internal` and Render's internal hostnames stop with where to find the
+  public URL. Each preset lists its provider's traps (logical replication for `--follow`, IPv6-only
+  Supabase direct host, RDS security groups).
+- **`capydb import --data-only --source-url <url>`** copies rows into the tables your migrations
+  already created, parents before children by the project's foreign keys - `pg_dump`'s
+  alphabetical order fails there, and `pg_restore --disable-triggers` needs a superuser. It runs
+  from this machine (so `localhost` and private-network sources work), reads the source in one
+  snapshot, writes the project in one transaction, and loads only into empty tables. A foreign-key
+  cycle is loaded with its deferrable constraints deferred; a cycle without one stops before
+  writing. User triggers are off and FORCE ROW LEVEL SECURITY is lifted per table during the load
+  (restored in the same transaction), generated columns are left to the project, serial and
+  identity sequences continue from the source's position, materialized views are refreshed and
+  tables analyzed afterwards. Column differences are reported. `--dry-run` prints the load order.
+- **`capydb import --from-supabase-dump <file>`** restores a Supabase `pg_dump -Fc` file in the
+  order a project role can apply it, in one transaction: the capyrls auth shim (`auth.uid()` and
+  friends), the app schemas' tables and functions, the data, indexes and constraints, then FORCE
+  ROW LEVEL SECURITY and the converted policies. Supabase-managed schemas, the dump's own policies,
+  grants to the PostgREST roles, publications and event triggers stay behind, as do foreign keys
+  into `auth.users` - each is listed. `extensions.` qualifications are rewritten to `public.` when
+  the project keeps its extensions there. It stops before writing when the dump needs an
+  extension the project lacks or the project already has tables. The policy bundle and report go
+  to `--rls-out` (default `capyrls/`); `--uid-type text` for non-uuid user ids; `--dry-run` shows
+  the plan. Needs `pg_restore` (at least the dump's major) and `psql`.
+- **`capydb env sync vercel|netlify`** pushes the project's connection env vars to a Vercel project
+  or Netlify site through CapyDB's token-connect integration and waits for the first push. The
+  target comes from `.vercel/project.json` / `.netlify/state.json` (written by `vercel link` /
+  `netlify link`) or `--vercel-project`/`--team` / `--site`; the token from `--token`,
+  `VERCEL_TOKEN` or `NETLIFY_AUTH_TOKEN`. CapyDB stores the token encrypted and pushes again on
+  every credential rotation; `--preview-branches` adds a preview database per branch deployment.
+- **`capydb doctor --fix`** applies the fixes that are mechanical, then runs the checks: database
+  env vars missing from the linked env file are added (existing values are never overwritten),
+  drizzle-kit configs get `schemaFilter: ["public"]` and the direct URL for credentials, Prisma
+  schemas get `directUrl`. Fixes that remove something - the link to a project that no longer
+  exists, database vars in other env files that shadow the linked one - are asked one by one on a
+  terminal, applied without asking with `--yes`, and skipped otherwise. Everything else is listed
+  as manual. `doctor` also gained an `env_vars` check for the linked env file.
+
 
 ## [1.8.0] - 2026-09-26
 

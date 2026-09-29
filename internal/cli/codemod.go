@@ -16,8 +16,10 @@ import (
 // dogfood migration (docs/capydb-migration-codemod-notes.md): postgres-js +
 // drizzle-orm/postgres-js replace @neondatabase/serverless, with the CapyDB
 // pooler rules (max: 1, prepare: false) applied at the client construction
-// site. Anything that needs human judgment (Pool usage, db.batch rewrites,
-// per-call client construction) is reported instead of guessed at.
+// site. db.batch() call sites are rewritten to transactions where that is
+// mechanical (codemod_batch.go). Anything that needs human judgment (Pool
+// usage, batches built from variables, per-call client construction) is
+// reported instead of guessed at.
 
 type codemodChange struct {
 	Description string `json:"description"`
@@ -52,7 +54,9 @@ func (a *app) newMigrateCodemodNeonCommand() *cobra.Command {
 		Use:   "neon [path]",
 		Short: "Rewrite @neondatabase/serverless usage to postgres-js",
 		Long: "Rewrites Neon driver imports and client construction to postgres-js with CapyDB's pooler-safe defaults (max: 1, prepare: false), swaps the drizzle adapter to drizzle-orm/postgres-js, " +
-			"updates package.json and drizzle.config, and strips Neon-specific connection parameters from env files. Call sites that need human judgment (Pool, db.batch, neonConfig) are reported, not rewritten. " +
+			"updates package.json and drizzle.config, and strips Neon-specific connection parameters from env files. " +
+			"In repos using drizzle's neon-http driver, db.batch([...]) calls whose statements are written inline on the client become db.transaction(...) running the same statements in order, all or nothing. " +
+			"Call sites that need human judgment (Pool, neonConfig, a batch built from variables) are reported, not rewritten. " +
 			"Dry-run by default; pass --write to apply.",
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -110,7 +114,16 @@ var codemodSkipDirs = map[string]struct{}{
 func runNeonCodemod(root string, write bool) (codemodReport, error) {
 	report := codemodReport{Changes: []codemodChange{}, Manual: []codemodNote{}, Write: write}
 
-	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+	// db.batch() exists only on drizzle's neon-http client, and its call
+	// sites usually live in modules that import the client rather than
+	// construct it, so they carry no Neon marker of their own. Whether to
+	// rewrite them is a property of the repository.
+	neonHTTP, err := repoUsesNeonHTTP(root)
+	if err != nil {
+		return codemodReport{}, err
+	}
+
+	err = filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -132,6 +145,11 @@ func runNeonCodemod(root string, write bool) (codemodReport, error) {
 			transform = codemodEnvFile
 		case hasAnySuffix(name, ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"):
 			transform = codemodSourceFile
+			if neonHTTP {
+				transform = func(path, content string, report *codemodReport) string {
+					return codemodDrizzleBatch(path, codemodSourceFile(path, content, report), report)
+				}
+			}
 		default:
 			return nil
 		}
@@ -175,6 +193,53 @@ func runNeonCodemod(root string, write bool) (codemodReport, error) {
 		return report.Manual[i].Line < report.Manual[j].Line
 	})
 	return report, nil
+}
+
+// repoUsesNeonHTTP reports whether any source file under root uses drizzle's
+// neon-http driver.
+func repoUsesNeonHTTP(root string) (bool, error) {
+	found := false
+	err := filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if entry.IsDir() {
+			if _, skip := codemodSkipDirs[entry.Name()]; skip {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !hasAnySuffix(entry.Name(), ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs") {
+			return nil
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", path, err)
+		}
+		if strings.Contains(string(raw), "drizzle-orm/neon-http") {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return found, err
+}
+
+// codemodDrizzleBatch rewrites the file's mechanically safe db.batch() calls
+// to transactions and reports the rest (see codemod_batch.go).
+func codemodDrizzleBatch(path, content string, report *codemodReport) string {
+	if !strings.Contains(content, ".batch(") && !batchCallPattern.MatchString(content) {
+		return content
+	}
+	typescript := hasAnySuffix(path, ".ts", ".tsx", ".mts", ".cts")
+	rewritten, count, notes := rewriteDrizzleBatches(content, typescript)
+	if count > 0 {
+		report.Changes = append(report.Changes, codemodChange{File: path, Description: fmt.Sprintf("db.batch([...]) -> db.transaction(...) (%d call site(s); same statements, in order, all or nothing)", count)})
+	}
+	for _, note := range notes {
+		report.Manual = append(report.Manual, codemodNote{File: path, Line: strings.Count(content[:note.offset], "\n") + 1, Reason: note.reason})
+	}
+	return rewritten
 }
 
 func hasAnySuffix(name string, suffixes ...string) bool {
@@ -329,7 +394,6 @@ func codemodSourceFile(path, content string, report *codemodReport) string {
 		needle string
 		reason string
 	}{
-		{".batch(", "db.batch() does not exist on PostgresJsDatabase; rewrite to db.transaction(async (tx) => { ... }) and rebind statements to tx"},
 		{"neonConfig", "remove neonConfig/WebSocket wiring; postgres-js connects over TCP"},
 		{"new Pool(", "replace Neon Pool with the postgres-js client (max: 1, prepare: false through the pooled endpoint)"},
 	} {

@@ -16,6 +16,7 @@ import (
 type statusOptions struct {
 	projectRef string
 	remote     bool
+	usage      bool
 }
 
 type statusOrganization struct {
@@ -71,6 +72,7 @@ type statusReport struct {
 	LinkedProject *statusLinkedProject `json:"linked_project"`
 	API           *statusAPIHealth     `json:"api,omitempty"`
 	RemoteProject *statusRemoteProject `json:"remote_project,omitempty"`
+	Usage         *statusUsage         `json:"usage,omitempty"`
 }
 
 func (a *app) runStatus(cmd *cobra.Command, options statusOptions) error {
@@ -83,6 +85,9 @@ func (a *app) runStatus(cmd *cobra.Command, options statusOptions) error {
 		return printJSON(cmd.OutOrStdout(), report)
 	}
 	writeStatusReport(cmd, report, options)
+	if report.Usage != nil {
+		writeStatusUsage(cmd.OutOrStdout(), *report.Usage)
+	}
 	return nil
 }
 
@@ -127,7 +132,10 @@ func (a *app) buildStatusReport(cmd *cobra.Command, options statusOptions) (stat
 		}
 	}
 
-	if !options.remote && strings.TrimSpace(options.projectRef) == "" {
+	if options.usage && !linked && strings.TrimSpace(options.projectRef) == "" {
+		return statusReport{}, usageErrorf("--usage needs a linked project or --project")
+	}
+	if !options.remote && !options.usage && strings.TrimSpace(options.projectRef) == "" {
 		return report, nil
 	}
 
@@ -186,6 +194,15 @@ func (a *app) buildStatusReport(cmd *cobra.Command, options statusOptions) (stat
 		} else {
 			remote.LatestJob = &job
 		}
+	}
+
+	if options.usage {
+		usage := buildStatusUsage(ctx, client, project)
+		report.Usage = &usage
+		// The usage section reads the live figures itself (and skips them
+		// while the database is paused); reading observability again below
+		// would wake a paused database.
+		return report, nil
 	}
 
 	observability, err := client.GetProjectObservability(ctx, project.ID)

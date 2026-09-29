@@ -30,16 +30,39 @@ type doctorCheck struct {
 }
 
 func (a *app) newDoctorCommand() *cobra.Command {
-	return &cobra.Command{
+	var fix, yes bool
+	command := &cobra.Command{
 		Use:   "doctor",
 		Short: "Diagnose the local CapyDB CLI environment",
-		Long:  "Checks the saved config, API reachability, authentication, the local project link, and psql availability. Exits non-zero when any check fails.",
-		Args:  cobra.NoArgs,
-		RunE:  a.runDoctor,
+		Long: "Checks the saved config, API reachability, authentication, the local project link and its env vars, psql availability, " +
+			"env files that point the same keys at different databases, database configuration in the repo, and the live migration history. " +
+			"Exits non-zero when any check fails.\n\n" +
+			"--fix applies the fixes that are mechanical before checking: missing database env vars are added to the linked env file, " +
+			"drizzle-kit gets schemaFilter and the direct URL, Prisma gets directUrl - nothing existing is overwritten. " +
+			"Fixes that remove something (a link to a deleted project, database vars in other env files) are asked one by one; " +
+			"--yes applies them without asking, and without a terminal they are skipped. The rest is listed as manual.",
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if yes && !fix {
+				return usageErrorf("--yes only applies with --fix")
+			}
+			var fixes []doctorFix
+			if fix {
+				applied, err := a.runDoctorFixes(cmd, a.newFixConfirmer(cmd, yes))
+				if err != nil {
+					return err
+				}
+				fixes = applied
+			}
+			return a.runDoctor(cmd, fixes)
+		},
 	}
+	command.Flags().BoolVar(&fix, "fix", false, "Apply the mechanical fixes, then check")
+	command.Flags().BoolVar(&yes, "yes", false, "With --fix: also apply fixes that remove something, without asking")
+	return command
 }
 
-func (a *app) runDoctor(cmd *cobra.Command, args []string) error {
+func (a *app) runDoctor(cmd *cobra.Command, fixes []doctorFix) error {
 	ctx := cmd.Context()
 	checks := make([]doctorCheck, 0, 5)
 
@@ -113,6 +136,19 @@ func (a *app) runDoctor(cmd *cobra.Command, args []string) error {
 			break
 		}
 		checks = append(checks, doctorCheck{Name: "project_link", Status: doctorPass, Detail: fmt.Sprintf("linked to %s (%s)", project.Name, project.ID)})
+	}
+
+	// 4b. The linked env file carries the database variables the link wrote.
+	if linkErr == nil && strings.TrimSpace(linkConfig.ProjectID) != "" {
+		_, envFile := linkedEnvFile(a.cwd, linkConfig)
+		switch missing, err := missingLinkedEnvVars(a.cwd, linkConfig); {
+		case err != nil:
+			checks = append(checks, doctorCheck{Name: "env_vars", Status: doctorSkip, Detail: err.Error()})
+		case len(missing) > 0:
+			checks = append(checks, doctorCheck{Name: "env_vars", Status: doctorFail, Detail: fmt.Sprintf("%s is missing %s; run `capydb env pull` or `capydb doctor --fix`", envFile, strings.Join(missing, ", "))})
+		default:
+			checks = append(checks, doctorCheck{Name: "env_vars", Status: doctorPass, Detail: envFile + " has the database variables"})
+		}
 	}
 
 	// 5. psql on PATH.
@@ -232,13 +268,26 @@ func (a *app) runDoctor(cmd *cobra.Command, args []string) error {
 	}
 
 	if a.jsonOutput() {
-		if err := printJSON(cmd.OutOrStdout(), map[string]any{
+		payload := map[string]any{
 			"checks": jsonList(checks),
 			"ok":     failed == 0,
-		}); err != nil {
+		}
+		if fixes != nil {
+			payload["fixes"] = jsonList(fixes)
+		}
+		if err := printJSON(cmd.OutOrStdout(), payload); err != nil {
 			return err
 		}
 	} else {
+		for _, fix := range fixes {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s: %s\n", fix.Status, fix.Name, fix.Detail)
+		}
+		switch {
+		case len(fixes) > 0:
+			_, _ = fmt.Fprintln(cmd.OutOrStdout())
+		case fixes != nil:
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "--fix: nothing to fix.")
+		}
 		for _, check := range checks {
 			if strings.TrimSpace(check.Detail) != "" {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s: %s\n", check.Status, check.Name, check.Detail)

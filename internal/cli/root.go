@@ -109,10 +109,10 @@ Exit codes:
 	root.AddCommand(application.newWhoamiCommand())
 	root.AddCommand(application.newStatusCommand())
 	root.AddCommand(application.newAuthCommand())
-	root.AddCommand(application.newCreateCommand())
+	root.AddCommand(application.withCreateTemplate(application.newCreateCommand()))
 	root.AddCommand(application.newLinkCommand())
 	root.AddCommand(application.newUnlinkCommand())
-	root.AddCommand(application.newEnvCommand())
+	root.AddCommand(application.withEnvSync(application.newEnvCommand()))
 	root.AddCommand(application.newInitCommand())
 	root.AddCommand(application.newGenerateCommand())
 	root.AddCommand(application.newSchemaCommand())
@@ -120,7 +120,7 @@ Exit codes:
 	root.AddCommand(application.newEphemeralCommand())
 	root.AddCommand(application.newBackupsCommand())
 	root.AddCommand(application.newExportCommand())
-	root.AddCommand(application.newImportCommand())
+	root.AddCommand(application.withImportExtensions(application.newImportCommand()))
 	root.AddCommand(application.newMigrateCommand())
 	root.AddCommand(application.newRestoreCommand())
 	root.AddCommand(application.newRestorePointsCommand())
@@ -133,6 +133,8 @@ Exit codes:
 	root.AddCommand(application.newKVCommand())
 	root.AddCommand(application.newPsqlCommand())
 	root.AddCommand(application.newSQLCommand())
+	root.AddCommand(application.newDBCommand())
+	root.AddCommand(application.newSeedCommand())
 	root.AddCommand(application.newMetricsCommand())
 	root.AddCommand(application.newLogsCommand())
 	root.AddCommand(application.newProjectsCommand())
@@ -430,6 +432,7 @@ func (a *app) newStatusCommand() *cobra.Command {
 
 	command.Flags().StringVar(&options.projectRef, "project", "", "Project id, slug, or name for remote status")
 	command.Flags().BoolVar(&options.remote, "remote", false, "Check the CapyDB API and linked project")
+	command.Flags().BoolVar(&options.usage, "usage", false, "Show what the project uses against its plan: storage, connections, previews, backups (implies --remote)")
 	return command
 }
 

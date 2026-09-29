@@ -86,6 +86,64 @@ func UpsertWithResolver(path string, updates map[string]string, resolver Conflic
 	return nil
 }
 
+// Values reads the non-empty assignments of an env file. A missing file is
+// an empty map, not an error.
+func Values(path string) (map[string]string, error) {
+	values := map[string]string{}
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return values, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read env file: %w", err)
+	}
+	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+		key, _, ok := parseAssignment(line)
+		if !ok {
+			continue
+		}
+		if value := parseAssignmentValue(line); value != "" {
+			values[key] = value
+		}
+	}
+	return values, nil
+}
+
+// RemoveKeys deletes every assignment of the given keys from the env file
+// and returns how many lines it removed. Comments and other keys are kept
+// byte for byte.
+func RemoveKeys(path string, keys []string) (int, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0, fmt.Errorf("read env file: %w", err)
+	}
+	drop := make(map[string]bool, len(keys))
+	for _, key := range keys {
+		drop[key] = true
+	}
+	lines := strings.SplitAfter(string(data), "\n")
+	kept := lines[:0]
+	removed := 0
+	for _, line := range lines {
+		if key, _, ok := parseAssignment(line); ok && drop[key] {
+			removed++
+			continue
+		}
+		kept = append(kept, line)
+	}
+	if removed == 0 {
+		return 0, nil
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		return 0, fmt.Errorf("stat env file: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(strings.Join(kept, "")), info.Mode().Perm()); err != nil {
+		return 0, fmt.Errorf("write env file: %w", err)
+	}
+	return removed, nil
+}
+
 func parseAssignment(line string) (key string, prefix string, ok bool) {
 	trimmed := strings.TrimSpace(line)
 	if trimmed == "" || strings.HasPrefix(trimmed, "#") {

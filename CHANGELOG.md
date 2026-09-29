@@ -8,6 +8,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-09-29
+
 ### Changed
 
 - capyrls v1.14.0 -> v1.15.0.

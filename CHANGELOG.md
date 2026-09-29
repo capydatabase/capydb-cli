@@ -19,6 +19,12 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   to `text` before applying, or the apply stops with `operator does not exist: text = uuid`. The
   default stays `uuid`. Built on capyrls v1.14.0.
 
+### Changed
+
+- **`capydb init drizzle` no longer filters `pg_stat_statements_info`.** Every cell now keeps
+  that view out of tenant reach, so drizzle-kit never sees it; the generated `drizzle.config.ts`
+  excludes only `pg_stat_statements`. Existing configs that still list both keep working.
+
 ## [1.8.0] - 2026-09-26
 
 ### Changed

@@ -429,6 +429,7 @@ func (a *app) newStatusCommand() *cobra.Command {
 
 	command.Flags().StringVar(&options.projectRef, "project", "", "Project id, slug, or name for remote status")
 	command.Flags().BoolVar(&options.remote, "remote", false, "Check the CapyDB API and linked project")
+	command.Flags().BoolVar(&options.usage, "usage", false, "Show what the project uses against its plan: storage, connections, previews, backups (implies --remote)")
 	return command
 }
 

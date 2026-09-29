@@ -29,6 +29,10 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   while nothing changes, and never reads a paused database - reading the schema would wake it.
   Note that while the database is awake, each check counts as activity. With `--output json` each
   regeneration prints one JSON line.
+- **`capydb status --usage`**: what the project uses against its plan in plain language - plan and
+  billing status, storage and connections against their limits, active previews, retained backups
+  and their size, plus a note when storage or connections pass 80%. A paused database is not
+  read (reading storage would wake it); the storage limit is still shown.
 
 ### Changed
 

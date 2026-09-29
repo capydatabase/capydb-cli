@@ -80,10 +80,12 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   source. An unreachable `--source-url` fails before anything is created. Without the flag, when the
   env file `create` is about to write already points `DATABASE_URL` / `DIRECT_URL` at a database
   outside CapyDB, `create` says so and names the flag; it does not connect to that database.
-- **`link`, `create`, `env pull`, and `ephemeral create` write `DIRECT_URL` for every stack.** It is the
-  name Prisma's `directUrl` and most ORM and provider guides use for the direct connection; it was
-  written only for Prisma projects. It carries the same value as `DATABASE_DIRECT_URL`, which stays.
+- **`link`, `create`, `env pull`, and `ephemeral create` write `DIRECT_URL` for every stack, and
+  `integrations env` (dotenv, json, vercel, netlify) includes it.** It is the name Prisma's
+  `directUrl` and most ORM and provider guides use for the direct connection; it was written only
+  for Prisma projects. It carries the same value as `DATABASE_DIRECT_URL`, which stays.
   `DATABASE_URL` keeps its per-stack default (pooled for JS/TS, direct for Go, Python, and Ruby).
+  `create -o json` lists it in `env_vars`.
 
 ## [1.8.0] - 2026-09-26
 

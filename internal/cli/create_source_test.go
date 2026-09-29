@@ -165,3 +165,27 @@ func TestCreateHintsAtForeignDatabaseURLInEnvFile(t *testing.T) {
 		t.Fatalf("the hint must not pick a version on its own: %v", body)
 	}
 }
+
+func TestCreateJSONSummaryListsDirectURL(t *testing.T) {
+	t.Setenv("CI", "true")
+	isolateUserConfig(t)
+	var body map[string]any
+	server := createServer(t, &body)
+	defer server.Close()
+
+	output, err := runCommand(t, t.TempDir(), "create", "--name", "app", "--non-interactive", "-o", "json",
+		"--api-url", server.URL, "--api-key", "capy_test_key")
+	if err != nil {
+		t.Fatalf("create -o json: %v\n%s", err, output)
+	}
+	start := strings.LastIndex(output, "\n{")
+	var summary struct {
+		EnvVars []string `json:"env_vars"`
+	}
+	if err := json.Unmarshal([]byte(output[start+1:]), &summary); err != nil {
+		t.Fatalf("decode summary: %v\n%s", err, output)
+	}
+	if !strings.Contains(strings.Join(summary.EnvVars, ","), "DIRECT_URL") || !strings.Contains(strings.Join(summary.EnvVars, ","), "DATABASE_DIRECT_URL") {
+		t.Fatalf("env_vars = %v, want DIRECT_URL and DATABASE_DIRECT_URL", summary.EnvVars)
+	}
+}

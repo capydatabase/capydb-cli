@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -1140,11 +1141,16 @@ func (a *app) printCreateJSONSummary(cmd *cobra.Command, detection project.Detec
 		return fmt.Errorf("reload project link for summary: %w", err)
 	}
 
-	envVars := make([]string, 0, 3)
+	envVars := make([]string, 0, 4)
 	for _, name := range []string{linkConfig.DatabaseURLVar, linkConfig.DirectURLVar, linkConfig.PooledURLVar} {
 		if strings.TrimSpace(name) != "" {
 			envVars = append(envVars, name)
 		}
+	}
+	// BuildEnvPlan writes DIRECT_URL next to the direct var for every stack;
+	// the link config records only one direct name.
+	if strings.TrimSpace(linkConfig.DirectURLVar) != "" && !slices.Contains(envVars, "DIRECT_URL") {
+		envVars = append(envVars, "DIRECT_URL")
 	}
 
 	return printJSON(cmd.OutOrStdout(), struct {

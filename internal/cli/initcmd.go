@@ -117,7 +117,7 @@ var initScaffolds = map[string]initScaffold{
 		long: "Writes prisma.config.ts (migrations and introspection on the direct URL), prisma/schema.prisma, and a client module using the " +
 			"@prisma/adapter-pg driver adapter on the pooled URL. Models come from the live database with `prisma db pull` - Prisma's own introspection, " +
 			"so the schema is exactly what Prisma expects. Targets Prisma ORM 7 (driver adapters, prisma.config.ts).",
-		schemaPath:  "prisma/schema.prisma",
+		schemaPath: "prisma/schema.prisma",
 		// Pinned to 7: the prisma CLI's latest dist-tag points at an 8.x
 		// release candidate whose CLI has no `db pull`/`generate`.
 		packages:    "@prisma/client@7 @prisma/adapter-pg@7 pg dotenv",

@@ -153,7 +153,35 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   candidate without `db pull`. Kysely gets `src/db/database.types.ts` from `capydb generate types`
   and a client that maps the generated Row/Insert/Update types onto Kysely's column types
   (defaults optional on insert, generated columns not writable), tables outside `public` as
-  `"schema.table"`. `--json` output of `init` now includes `orm`.
+  `"schema.table"`. `init --output json` now includes `orm`.
+- **`capydb import --from <provider>`** (`supabase`, `neon`, `planetscale`, `railway`, `render`,
+  `rds`; `--from-neon` is shorthand) fixes up `--source-url` before the import and preflight see
+  it, printing every change: Neon's `-pooler` endpoint becomes the direct one, Supabase's
+  transaction pooler port 6543 becomes the session pooler 5432, PlanetScale's PgBouncer port 6432
+  becomes 5432, and `sslmode=require` is added when the URL leaves TLS to libpq's `prefer`.
+  Railway's `*.railway.internal` and Render's internal hostnames stop with where to find the
+  public URL. Each preset lists its provider's traps (logical replication for `--follow`, IPv6-only
+  Supabase direct host, RDS security groups).
+- **`capydb import --data-only --source-url <url>`** copies rows into the tables your migrations
+  already created, parents before children by the project's foreign keys - `pg_dump`'s
+  alphabetical order fails there, and `pg_restore --disable-triggers` needs a superuser. It runs
+  from this machine (so `localhost` and private-network sources work), reads the source in one
+  snapshot, writes the project in one transaction, and loads only into empty tables. A foreign-key
+  cycle is loaded with its deferrable constraints deferred; a cycle without one stops before
+  writing. User triggers are off and FORCE ROW LEVEL SECURITY is lifted per table during the load
+  (restored in the same transaction), generated columns are left to the project, serial and
+  identity sequences continue from the source's position, materialized views are refreshed and
+  tables analyzed afterwards. Column differences are reported. `--dry-run` prints the load order.
+- **`capydb import --from-supabase-dump <file>`** restores a Supabase `pg_dump -Fc` file in the
+  order a project role can apply it, in one transaction: the capyrls auth shim (`auth.uid()` and
+  friends), the app schemas' tables and functions, the data, indexes and constraints, then FORCE
+  ROW LEVEL SECURITY and the converted policies. Supabase-managed schemas, the dump's own policies,
+  grants to the PostgREST roles, publications and event triggers stay behind, as do foreign keys
+  into `auth.users` - each is listed. `extensions.` qualifications are rewritten to `public.` when
+  the project keeps its extensions there. It stops before writing when the dump needs an
+  extension the project lacks or the project already has tables. The policy bundle and report go
+  to `--rls-out` (default `capyrls/`); `--uid-type text` for non-uuid user ids; `--dry-run` shows
+  the plan. Needs `pg_restore` (at least the dump's major) and `psql`.
 
 
 ## [1.8.0] - 2026-09-26

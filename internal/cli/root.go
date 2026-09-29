@@ -120,7 +120,7 @@ Exit codes:
 	root.AddCommand(application.newEphemeralCommand())
 	root.AddCommand(application.newBackupsCommand())
 	root.AddCommand(application.newExportCommand())
-	root.AddCommand(application.newImportCommand())
+	root.AddCommand(application.withImportExtensions(application.newImportCommand()))
 	root.AddCommand(application.newMigrateCommand())
 	root.AddCommand(application.newRestoreCommand())
 	root.AddCommand(application.newRestorePointsCommand())

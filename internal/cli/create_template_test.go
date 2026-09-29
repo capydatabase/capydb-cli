@@ -35,8 +35,10 @@ func TestStarterTemplatesApplyCleanly(t *testing.T) {
 // connects to directURL.
 func createRoutes(t *testing.T, directURL string) map[string]http.HandlerFunc {
 	return map[string]http.HandlerFunc{
-		"GET /v1/me":      func(w http.ResponseWriter, r *http.Request) { writeViewer(t, w, "org_1") },
-		"GET /v1/regions": func(w http.ResponseWriter, r *http.Request) { writeJSON(t, w, map[string]any{"regions": []string{"hel1"}}) },
+		"GET /v1/me": func(w http.ResponseWriter, r *http.Request) { writeViewer(t, w, "org_1") },
+		"GET /v1/regions": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(t, w, map[string]any{"regions": []string{"hel1"}})
+		},
 		"POST /v1/projects": func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusCreated)
 			writeJSON(t, w, map[string]any{"project": fakeProject, "job": map[string]any{}})

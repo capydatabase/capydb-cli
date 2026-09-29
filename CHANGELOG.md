@@ -53,6 +53,13 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   OAuth accounts, sessions and verification tokens, one demo user); `empty` is the default.
   Schema and seed run in one transaction; if that fails the project still exists, nothing was
   applied, and the SQL is saved next to you for `capydb seed`.
+- **`capydb migrate codemod neon` rewrites `db.batch([...])`** instead of only reporting it. In a
+  repo that uses drizzle's neon-http driver, a batch whose statements are written inline on the
+  client becomes `db.transaction(async (tx) => { ... })` that runs the same statements on `tx`, in
+  order, and returns the same tuple (typed with `as [typeof r0, ...]` in TypeScript) - neon-http
+  batches are one transaction, so the semantics match. Batches built from variables, spreads,
+  statements containing `await`, a client reached through a property (`this.db`), or files with
+  syntax the codemod cannot read with certainty (regex literals) are reported with the reason.
 
 ### Changed
 

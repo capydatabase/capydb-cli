@@ -1010,7 +1010,7 @@ func neonBatchStep(sites CallSites) string {
 	if sites.NeonBatchCalls == 0 {
 		return "No db.batch()/sql.transaction([]) call sites detected - the driver swap is mechanical."
 	}
-	return fmt.Sprintf("Rewrite %d db.batch()/sql.transaction([]) call site(s) to db.transaction()/sql.begin() - rebind inner statements to the tx client (a db-bound query inside a max:1 transaction deadlocks).", sites.NeonBatchCalls)
+	return fmt.Sprintf("Rewrite %d db.batch()/sql.transaction([]) call site(s) to db.transaction()/sql.begin() - rebind inner statements to the tx client (a db-bound query inside a max:1 transaction deadlocks). `capydb migrate codemod neon --write` rewrites inline db.batch([...]) calls and lists the rest.", sites.NeonBatchCalls)
 }
 
 func firstN(values []string, n int) []string {

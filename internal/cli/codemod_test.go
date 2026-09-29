@@ -99,7 +99,7 @@ await db.batch([a, b]);
 		reasons = append(reasons, note.Reason)
 	}
 	joined := strings.Join(reasons, "\n")
-	for _, want := range []string{"Pool", "db.batch()", "neonConfig"} {
+	for _, want := range []string{"Pool", "neonConfig"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("manual notes missing %q, got:\n%s", want, joined)
 		}

@@ -23,6 +23,12 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   host (a credential rotation) silently; a value pointing anywhere else - typically a `DIRECT_URL`
   left over from a previous provider - is prompted for on a terminal and announced with a warning
   in CI before it is replaced, the same as `link` and `create`.
+- **`capydb cloudflare create-database` (hidden; the Cloudflare partner flow is not enabled yet)
+  follows the CLI's conventions.** It prints a text summary by default and one JSON document with
+  `-o json` (it always printed JSON), reports missing flags as usage errors (exit 2), takes no
+  positional arguments, and uses the global `--api-url` instead of redeclaring it. Its help now says
+  what it does today: the control plane rejects every request until Cloudflare onboarding completes,
+  and the flag names may still change then.
 
 ### Added
 

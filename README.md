@@ -82,7 +82,7 @@ The CLI will:
 - `capydb jobs get`
 - `capydb studio`
 - `capydb connection-string [--pooled] [--preview <id>]` (prints only the URL - script-friendly)
-- `capydb psql [--pooled] [--preview <id>] [-- <psql args>]` (opens psql against the project or a preview)
+- `capydb psql [--pooled] [--preview <id>] [-- <psql args>]`, alias `capydb connect` (opens psql against the project or a preview)
 - `capydb sql "select ..." [--max-rows N] [--json]` (runs a query through the bounded SQL runner)
 - `capydb metrics [--json]` (storage/connection usage, alerts, active and slow queries)
 - `capydb extensions list|enable <name>|disable <name> [--project <ref>]` (Postgres extensions; enable/disable queue jobs and support `--wait`)
@@ -129,7 +129,7 @@ Compatibility aliases:
 - `capydb auth login`
 - `capydb auth logout`
 - `capydb auth whoami`
-- `capydb connect` -> `capydb link`
+- `capydb connect` -> `capydb psql` (through v1.8.0 it aliased `capydb link`)
 
 ## Linking a local project
 
@@ -160,10 +160,11 @@ Saved locally:
 
 Written into the app:
 
-- `DATABASE_URL`
-- `DATABASE_DIRECT_URL`
+- `DATABASE_URL` (pooled for JS/TS stacks, direct for Go, Python, and Ruby)
+- `DIRECT_URL` and `DATABASE_DIRECT_URL` (the direct connection, for migrations; `DIRECT_URL` is the name Prisma and most ORM guides use)
 - `DATABASE_POOL_URL`
-- framework-specific aliases such as `DIRECT_URL` for Prisma
+
+`capydb env pull` refreshes these silently when they already point at the same CapyDB host (a credential rotation); a value pointing anywhere else is announced before it is replaced, and on a terminal you are asked first.
 
 ## Detected profiles
 

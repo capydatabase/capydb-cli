@@ -126,9 +126,18 @@ func (a *app) newPsqlCommand() *cobra.Command {
 	var projectRef string
 
 	command := &cobra.Command{
-		Use:   "psql [-- <extra psql args>]",
-		Short: "Open psql connected to a project or preview database",
-		Args:  cobra.ArbitraryArgs,
+		Use: "psql [-- <extra psql args>]",
+		// connect is the spelling most Postgres platforms use for "open a
+		// shell on my database"; it used to alias `link`, which only writes
+		// env vars.
+		Aliases: []string{"connect"},
+		Short:   "Open psql connected to a project or preview database (alias: connect)",
+		Long: `Opens an interactive psql session on the linked project (or --project / --preview),
+using the direct connection unless --pooled is set. A paused database resumes on connect.
+Arguments after -- go to psql unchanged, e.g. capydb connect -- -c "select 1".
+
+Needs psql (libpq 16 or newer) on PATH. To print the URL instead, use capydb connection-string.`,
+		Args: cobra.ArbitraryArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			connectionURL, runtimeStatus, err := a.resolveConnectionURL(cmd, pooled, previewID, projectRef)
 			if err != nil {

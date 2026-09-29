@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -441,6 +442,7 @@ func (a *app) newCreateCommand() *cobra.Command {
 	var slug string
 	var environment string
 	var postgresVersion string
+	var sourceURL string
 	var waitTimeout time.Duration
 
 	command := &cobra.Command{
@@ -491,10 +493,23 @@ func (a *app) newCreateCommand() *cobra.Command {
 					return err
 				}
 
+				envPath := envTargetPath(a.cwd, detection.AppPath, firstNonEmpty(envFileOverride, detection.EnvFile))
+				sourceMajor, err := resolveCreateSourceMajor(ctx, progress, sourceURL, postgresVersion, envPath)
+				if err != nil {
+					return err
+				}
+				resolvedVersion, versionNotes, err := createPostgresVersion(postgresVersion, sourceMajor)
+				if err != nil {
+					return err
+				}
+				for _, note := range versionNotes {
+					_, _ = fmt.Fprintln(progress, note)
+				}
+
 				request := api.CreateProjectRequest{
 					Environment:     strings.TrimSpace(environment),
 					Name:            firstNonEmpty(projectName, detection.ProjectName),
-					PostgresVersion: strings.TrimSpace(postgresVersion),
+					PostgresVersion: resolvedVersion,
 					Region:          selectedRegion,
 					Slug:            strings.TrimSpace(slug),
 				}
@@ -563,7 +578,8 @@ func (a *app) newCreateCommand() *cobra.Command {
 	command.Flags().StringVar(&region, "region", "", "Region for project placement (server picks one when omitted)")
 	command.Flags().StringVar(&slug, "slug", "", "Project slug override")
 	command.Flags().StringVar(&environment, "environment", "", "Environment label: production (default) or non_production (unlocks overwrite-restore)")
-	command.Flags().StringVar(&postgresVersion, "postgres-version", "", "Postgres major version: 16, 17, or 18 (server default when omitted)")
+	command.Flags().StringVar(&postgresVersion, "postgres-version", "", "Postgres major version: 16, 17, or 18 (the --source-url major, else the server default, when omitted)")
+	command.Flags().StringVar(&sourceURL, "source-url", "", "Database you will import from: the project gets its Postgres major (read-only version query)")
 	command.Flags().DurationVar(&waitTimeout, "wait-timeout", defaultWaitTimeout, "Maximum time to wait for the provision job")
 	return command
 }
@@ -574,9 +590,8 @@ func (a *app) newLinkCommand() *cobra.Command {
 	var projectRef string
 
 	command := &cobra.Command{
-		Use:     "link",
-		Aliases: []string{"connect"},
-		Short:   "Link the current directory to an existing CapyDB project",
+		Use:   "link",
+		Short: "Link the current directory to an existing CapyDB project",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			detection, err := a.detectProject(envFileOverride)
@@ -858,10 +873,17 @@ func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID 
 
 	// forceOverwrite (--overwrite-env) skips the interactive conflict prompt:
 	// a nil resolver overwrites silently, which is what migration/automation
-	// flows want when repointing DATABASE_URL from another provider.
+	// flows want when repointing DATABASE_URL from another provider. `env
+	// pull` (confirmOverwrite=false) refreshes CapyDB's own values silently
+	// but treats a value pointing at another host as the user's own.
 	var resolver envfile.ConflictResolver
-	if confirmOverwrite && !forceOverwrite {
+	switch {
+	case forceOverwrite:
+		// nil resolver: overwrite without asking.
+	case confirmOverwrite:
 		resolver = a.envOverwriteResolver(cmd)
+	default:
+		resolver = refreshResolver(a.envOverwriteResolver(cmd))
 	}
 	if err := envfile.UpsertWithResolver(envAbsPath, plan.Vars, resolver); err != nil {
 		return err
@@ -1119,11 +1141,16 @@ func (a *app) printCreateJSONSummary(cmd *cobra.Command, detection project.Detec
 		return fmt.Errorf("reload project link for summary: %w", err)
 	}
 
-	envVars := make([]string, 0, 3)
+	envVars := make([]string, 0, 4)
 	for _, name := range []string{linkConfig.DatabaseURLVar, linkConfig.DirectURLVar, linkConfig.PooledURLVar} {
 		if strings.TrimSpace(name) != "" {
 			envVars = append(envVars, name)
 		}
+	}
+	// BuildEnvPlan writes DIRECT_URL next to the direct var for every stack;
+	// the link config records only one direct name.
+	if strings.TrimSpace(linkConfig.DirectURLVar) != "" && !slices.Contains(envVars, "DIRECT_URL") {
+		envVars = append(envVars, "DIRECT_URL")
 	}
 
 	return printJSON(cmd.OutOrStdout(), struct {

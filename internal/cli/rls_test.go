@@ -86,9 +86,48 @@ func TestMigrateRLSFindsSupabaseMigrationsAndConverts(t *testing.T) {
 	}
 }
 
+// CapyDB is the default target, and a CapyDB database role cannot create the
+// split model's roles: refuse before reading anything, and name the way out.
+func TestMigrateRLSSplitRoleModelRefusedOnCapyDB(t *testing.T) {
+	dir := writeRLSFixture(t)
+	out := filepath.Join(dir, "capyrls")
+	for _, mode := range []string{"vanilla", "supabase-compat"} {
+		_, err := runCommand(t, dir, "migrate", "rls", dir, "--role-model", "split", "--mode", mode, "--out", out)
+		if err == nil || !strings.Contains(err.Error(), "cannot be applied on CapyDB") || !strings.Contains(err.Error(), "--target postgres") {
+			t.Fatalf("mode %s: expected the split-on-CapyDB refusal, got %v", mode, err)
+		}
+	}
+	if _, err := os.Stat(out); !os.IsNotExist(err) {
+		t.Errorf("refused conversion still wrote %s", out)
+	}
+}
+
+func TestMigrateRLSCompatSingleHasServiceEscape(t *testing.T) {
+	dir := writeRLSFixture(t)
+	output, err := runCommand(t, dir, "migrate", "rls", dir, "--mode", "supabase-compat", "--out", filepath.Join(dir, "capyrls"))
+	if err != nil {
+		t.Fatalf("migrate rls: %v\n%s", err, output)
+	}
+	force, err := os.ReadFile(filepath.Join(dir, "capyrls", "capyrls_02_force_rls.sql"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(force), "using (auth.role() = 'service_role')") {
+		t.Errorf("compat bundle lacks the claims-based service escape:\n%s", force)
+	}
+}
+
+func TestMigrateRLSInvalidTargetIsUsageError(t *testing.T) {
+	dir := writeRLSFixture(t)
+	_, err := runCommand(t, dir, "migrate", "rls", dir, "--target", "rds")
+	if err == nil || !strings.Contains(err.Error(), "--target") {
+		t.Fatalf("expected a usage error for a bad --target, got %v", err)
+	}
+}
+
 func TestMigrateRLSSplitRoleModel(t *testing.T) {
 	dir := writeRLSFixture(t)
-	output, err := runCommand(t, dir, "migrate", "rls", dir, "--role-model", "split", "--out", filepath.Join(dir, "capyrls"))
+	output, err := runCommand(t, dir, "migrate", "rls", dir, "--role-model", "split", "--target", "postgres", "--out", filepath.Join(dir, "capyrls"))
 	if err != nil {
 		t.Fatalf("migrate rls: %v\n%s", err, output)
 	}

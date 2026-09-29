@@ -764,6 +764,16 @@ func (a *app) newImportCommand() *cobra.Command {
 			ctx := cmd.Context()
 			sourceURL = strings.TrimSpace(sourceURL)
 			dumpFile = strings.TrimSpace(dumpFile)
+			if sourceURL != "" && dumpFile == "" {
+				mode := "import"
+				if follow {
+					mode = "follow"
+				}
+				if err := guardPrivateImportSource(cmd, sourceURL, projectRef, mode); err != nil {
+					return err
+				}
+				noteSupabaseSource(cmd, sourceURL, false)
+			}
 
 			client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
 			if err != nil {
@@ -1090,6 +1100,10 @@ func (a *app) newImportPreflightCommand() *cobra.Command {
 			if strings.TrimSpace(sourceURL) == "" {
 				return usageErrorf("--source-url is required")
 			}
+			if err := guardPrivateImportSource(cmd, strings.TrimSpace(sourceURL), projectRef, "preflight"); err != nil {
+				return err
+			}
+			noteSupabaseSource(cmd, strings.TrimSpace(sourceURL), true)
 
 			client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
 			if err != nil {
@@ -1112,6 +1126,7 @@ func (a *app) newImportPreflightCommand() *cobra.Command {
 			} else {
 				writeImportPreflight(cmd.OutOrStdout(), preflight)
 			}
+			notePgDumpForPreflight(cmd, preflight.Source.ServerVersion)
 			if !preflight.OK {
 				return fmt.Errorf("import preflight failed; fix the failing checks before running `capydb import`")
 			}

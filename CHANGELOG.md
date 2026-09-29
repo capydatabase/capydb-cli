@@ -8,6 +8,37 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Changed
+
+- capyrls v1.14.0 -> v1.15.0.
+- **`capydb init drizzle` no longer filters `pg_stat_statements_info`.** Every cell now keeps
+  that view out of tenant reach, so drizzle-kit never sees it; the generated `drizzle.config.ts`
+  excludes only `pg_stat_statements`. Existing configs that still list both keep working.
+- **Breaking: `capydb connect` now opens psql; it no longer aliases `capydb link`.** `connect` is
+  the spelling other Postgres platforms use for "open a shell on my database", and the spec's
+  minimum CLI surface lists it with that meaning; as an alias of `link` it only wrote env vars.
+  It is now an alias of `capydb psql` (direct connection, `--pooled` for the pooler, `--project`,
+  `--preview`, arguments after `--` passed to psql). Scripts that ran `capydb connect` to link a
+  directory must switch to `capydb link`. `--env-file` and `--overwrite-env` now fail with a usage
+  error, but `capydb connect --project <p>` is valid for both commands and now opens psql instead of
+  writing env vars - search scripts for `capydb connect`.
+- **`capydb env pull` no longer replaces another provider's value without a word.** It used to
+  overwrite every key it writes silently. It still refreshes values that point at the same CapyDB
+  host (a credential rotation) silently; a value pointing anywhere else - typically a `DIRECT_URL`
+  left over from a previous provider - is prompted for on a terminal and announced with a warning
+  in CI before it is replaced, the same as `link` and `create`.
+- **`capydb cloudflare create-database` (hidden; the Cloudflare partner flow is not enabled yet)
+  follows the CLI's conventions.** It prints a text summary by default and one JSON document with
+  `-o json` (it always printed JSON), reports missing flags as usage errors (exit 2), takes no
+  positional arguments, and uses the global `--api-url` instead of redeclaring it. Its help now says
+  what it does today: the control plane rejects every request until Cloudflare onboarding completes,
+  and the flag names may still change then.
+- **The Docker image is published as `ghcr.io/capydatabase/capydb-cli:<version>` and `:latest`
+  only.** The `<version>-amd64` / `<version>-arm64` tags pointed at the same multi-platform image
+  as `<version>` (both architectures), so they named something they were not; Docker picks the
+  platform on pull. Images for v1.4.0-v1.8.0 remain as published (v1.3.0 has none: its release run
+  failed before the build).
+
 ### Added
 
 - `LICENSE` with the MIT license text.
@@ -18,6 +49,60 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   and the report names each uuid column the user id is compared to or defaulted into - change those
   to `text` before applying, or the apply stops with `operator does not exist: text = uuid`. The
   default stays `uuid`. Built on capyrls v1.14.0.
+- **`capydb projects delete <project>` deletes a project** - its database, preview databases, and
+  backups. The project must be named (id, slug, or name); the linked project is never used
+  implicitly. Confirm by retyping the project name or pass `--confirm` (`--yes` is accepted too). A
+  production project also needs a delete approval an organization admin creates on the project's
+  settings page in the dashboard, passed with `--approval-token` or `CAPYDB_APPROVAL_TOKEN`; without
+  one the command stops before any destructive call and prints the settings page URL.
+  Non-production projects need only the confirmation. `--wait` follows the deletion job.
+- **`capydb import` and `capydb import preflight` stop a source CapyDB cannot reach, before any API
+  call, and say what works instead.** A source on `localhost`, a unix socket, a private network
+  (RFC 1918 / IPv6 ULA), CGNAT/Tailscale (`100.64.0.0/10`), link-local, `*.internal`, or `*.local` -
+  directly or through what the name resolves to on this machine - used to fail with the control
+  plane's generic "host is not allowed". The CLI now explains that imports run from CapyDB's network
+  and prints the two commands that work: `pg_dump -Fc ... -f source.dump` (password masked) and
+  `capydb import --file source.dump`. `--follow` explains that streaming needs a reachable source;
+  the preflight points at `capydb migrate scan --source-url` for a local check. Because the source
+  is reachable from here, it also compares the local `pg_dump` major with the source's.
+- **Import preflight warns when the local `pg_dump` major differs from the source's.** An older
+  `pg_dump` refuses to dump a newer server; a newer one dumps fine but can write settings an older
+  restore target rejects. The note names the direction and the pinned client to use
+  (`docker run --rm postgres:<major> pg_dump`). It is advisory - the server-side import uses its
+  own client - and appears only when `pg_dump` is on PATH.
+- **Supabase sources get the project's real pooler host.** With `SUPABASE_ACCESS_TOKEN` set, `import`
+  and `import preflight` read the project's pooler from the Supabase Management API and warn when
+  the connection string uses the wrong `aws-0` / `aws-1` prefix, the IPv6-only direct host, or the
+  transaction pooler port 6543, naming the session pooler (`<host>:5432`) to use instead. Without a
+  token the preflight explains where to copy the Session pooler string and prints the `curl` that
+  reads it.
+- **`capydb create --source-url <url>` creates the project on the source database's Postgres
+  major.** A dump restores into the same or a newer major, never an older one, so without
+  `--postgres-version` the project gets the source's major (read with one read-only query), raised to
+  16 for older sources; a source newer than every offered major (18) stops the create with an
+  explanation. An explicit `--postgres-version` still wins, with a warning when it is older than the
+  source. An unreachable `--source-url` fails before anything is created. Without the flag, when the
+  env file `create` is about to write already points `DATABASE_URL` / `DIRECT_URL` at a database
+  outside CapyDB, `create` says so and names the flag; it does not connect to that database.
+- **`link`, `create`, `env pull`, and `ephemeral create` write `DIRECT_URL` for every stack, and
+  `integrations env` (dotenv, json, vercel, netlify) includes it.** It is the name Prisma's
+  `directUrl` and most ORM and provider guides use for the direct connection; it was written only
+  for Prisma projects. It carries the same value as `DATABASE_DIRECT_URL`, which stays.
+  `DATABASE_URL` keeps its per-stack default (pooled for JS/TS, direct for Go, Python, and Ruby).
+  `create -o json` lists it in `env_vars`.
+- **`capydb migrate rls --mode supabase-compat` now has a service path.** Under the default single
+  role model the bundle emits a service escape keyed on the claims: a transaction whose verified
+  `request.jwt.claims` carry `"role": "service_role"` skips the row filters, where before nothing
+  bypassed the FORCEd policies. In both modes the escape now also passes restrictive policies,
+  as `service_role`'s `BYPASSRLS` did. capyrls v1.15.0.
+- **The `migrate rls` report lists `SECURITY DEFINER` functions that write to FORCEd tables**, with
+  the fix: under FORCE they are filtered by the caller's policies and cross-user writes fail with
+  `42501`. The CLI summary prints the count under Warnings.
+- **`capydb migrate rls --target capydb|postgres`** (default `capydb`). `--role-model split` is
+  refused up front on CapyDB, before any source is read, naming why: it creates a non-owning
+  runtime role and a `BYPASSRLS` role, which a CapyDB database role cannot create. Pass
+  `--target postgres` to build a split bundle for another Postgres - previously the CLI wrote a
+  split bundle that stopped at its first `CREATE ROLE` on CapyDB.
 - **`capydb generate go` and `capydb generate python`.** Go structs (with `db`/`json` tags, a string
   type plus constants per enum, and schema/table/column name constants) and Python models (frozen
   dataclasses by default, pydantic with `--style pydantic`) rendered from the same schema document
@@ -61,11 +146,6 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   statements containing `await`, a client reached through a property (`this.db`), or files with
   syntax the codemod cannot read with certainty (regex literals) are reported with the reason.
 
-### Changed
-
-- **`capydb init drizzle` no longer filters `pg_stat_statements_info`.** Every cell now keeps
-  that view out of tenant reach, so drizzle-kit never sees it; the generated `drizzle.config.ts`
-  excludes only `pg_stat_statements`. Existing configs that still list both keep working.
 
 ## [1.8.0] - 2026-09-26
 

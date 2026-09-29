@@ -97,3 +97,32 @@ func TestBuildEnvPlanForPrismaUsesPooledPrimary(t *testing.T) {
 		t.Fatalf("expected DIRECT_URL, got %q", plan.Vars["DIRECT_URL"])
 	}
 }
+
+func TestBuildEnvPlanWritesDirectURLForEveryStack(t *testing.T) {
+	t.Parallel()
+
+	detections := []Detection{
+		{DatabaseLayer: DatabaseLayerPrisma},
+		{DatabaseLayer: DatabaseLayerDrizzle},
+		{DatabaseLayer: DatabaseLayerPG},
+		{DatabaseLayer: DatabaseLayerPGX},
+		{DatabaseLayer: DatabaseLayerSQLAlchemy},
+		{DatabaseLayer: DatabaseLayerActiveRecord},
+		{Framework: FrameworkNextJS},
+		{Framework: FrameworkDjango},
+	}
+	for _, detection := range detections {
+		plan := BuildEnvPlan(detection, "postgres://direct", "postgres://pooled")
+		if plan.Vars["DIRECT_URL"] != "postgres://direct" || plan.Vars["DATABASE_DIRECT_URL"] != "postgres://direct" {
+			t.Errorf("%+v: DIRECT_URL=%q DATABASE_DIRECT_URL=%q, want both direct", detection, plan.Vars["DIRECT_URL"], plan.Vars["DATABASE_DIRECT_URL"])
+		}
+	}
+
+	// Go/Python/Ruby stacks keep DATABASE_URL on the direct connection.
+	if plan := BuildEnvPlan(Detection{DatabaseLayer: DatabaseLayerPGX}, "postgres://direct", "postgres://pooled"); plan.Vars["DATABASE_URL"] != "postgres://direct" {
+		t.Errorf("pgx DATABASE_URL = %q, want direct", plan.Vars["DATABASE_URL"])
+	}
+	if plan := BuildEnvPlan(Detection{DatabaseLayer: DatabaseLayerDrizzle}, "", "postgres://pooled"); plan.Vars["DIRECT_URL"] != "" {
+		t.Errorf("DIRECT_URL written without a direct URL: %q", plan.Vars["DIRECT_URL"])
+	}
+}

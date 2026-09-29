@@ -636,6 +636,8 @@ var capydbEnvVars = []string{
 	"CAPYDB_AGENT",
 	"CAPYDB_HTTP_TIMEOUT",
 	"CAPYDB_REPO",
+	"CAPYDB_APPROVAL_TOKEN",
+	"SUPABASE_ACCESS_TOKEN",
 }
 
 // isolateUserConfig gives the test its own config directory AND an environment

@@ -574,9 +574,8 @@ func (a *app) newLinkCommand() *cobra.Command {
 	var projectRef string
 
 	command := &cobra.Command{
-		Use:     "link",
-		Aliases: []string{"connect"},
-		Short:   "Link the current directory to an existing CapyDB project",
+		Use:   "link",
+		Short: "Link the current directory to an existing CapyDB project",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			detection, err := a.detectProject(envFileOverride)

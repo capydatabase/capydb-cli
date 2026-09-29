@@ -8,6 +8,17 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Changed
+
+- **Breaking: `capydb connect` now opens psql; it no longer aliases `capydb link`.** `connect` is
+  the spelling other Postgres platforms use for "open a shell on my database", and the spec's
+  minimum CLI surface lists it with that meaning; as an alias of `link` it only wrote env vars.
+  It is now an alias of `capydb psql` (direct connection, `--pooled` for the pooler, `--project`,
+  `--preview`, arguments after `--` passed to psql). Scripts that ran `capydb connect` to link a
+  directory must switch to `capydb link`. `--env-file` and `--overwrite-env` now fail with a usage
+  error, but `capydb connect --project <p>` is valid for both commands and now opens psql instead of
+  writing env vars - search scripts for `capydb connect`.
+
 ### Added
 
 - `LICENSE` with the MIT license text.

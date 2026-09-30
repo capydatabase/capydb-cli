@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -1277,7 +1278,7 @@ func (a *app) newRestoreCommand() *cobra.Command {
 				// The control plane's gate is a single-use approval that only a
 				// person signed in to the dashboard can create; an API key cannot
 				// approve its own overwrite. The CLI presents the token it is given.
-				token := firstNonEmpty(strings.TrimSpace(approvalToken), strings.TrimSpace(os.Getenv("CAPYDB_APPROVAL_TOKEN")))
+				token := resolveApprovalToken(approvalToken)
 				if token == "" {
 					backupsURL, urlErr := buildDashboardURL(a.resolveAppURL(authConfig.APIURL), lookupWorkspaceSlug(ctx, client), project.Slug, project.ID, "backups")
 					if urlErr != nil {
@@ -1288,12 +1289,23 @@ func (a *app) newRestoreCommand() *cobra.Command {
 				request.ApprovalToken = token
 			}
 
-			job, err := client.CreateRestore(ctx, project.ID, request)
+			restore, err := client.CreateRestore(ctx, project.ID, request)
 			if err != nil {
 				return fmt.Errorf("create restore: %w", err)
 			}
+			job := restore.Job
 			if !a.jsonOutput() {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Queued restore job %s for project %s\n", job.ID, project.Name)
+			}
+			// A clamp changes what the restore delivers, so it is said up front.
+			// In JSON mode stdout stays the job document and the notice goes to
+			// stderr; the completed job's result carries the same times.
+			if notice := restoreClampNotice(restore.PITR); notice != "" {
+				noticeOut := cmd.OutOrStdout()
+				if a.jsonOutput() {
+					noticeOut = cmd.ErrOrStderr()
+				}
+				_, _ = fmt.Fprint(noticeOut, notice)
 			}
 			// A nil error with --wait set means ensureCompletedJob passed
 			// (freshly queued jobs are always pending, so the wait ran).
@@ -1301,7 +1313,11 @@ func (a *app) newRestoreCommand() *cobra.Command {
 				return err
 			}
 			if wait && job.ID != "" && !a.jsonOutput() {
-				source := restoreSourceDescription(trimmedBackupKey, trimmedRestoreTime, trimmedRestorePoint)
+				restoredTime := trimmedRestoreTime
+				if restore.PITR != nil && restore.PITR.RestoreTimeClamped {
+					restoredTime = restore.PITR.RestoreTime.UTC().Format(time.RFC3339)
+				}
+				source := restoreSourceDescription(trimmedBackupKey, restoredTime, trimmedRestorePoint)
 				_, _ = fmt.Fprint(cmd.OutOrStdout(), restoreOutcome(project.Name, resolvedKind, source, firstNonEmpty(job.PreviewDatabaseID, request.PreviewID)))
 			}
 			return nil
@@ -1364,6 +1380,18 @@ func restoreSourceDescription(backupKey, restoreTime, restorePointID string) str
 	default:
 		return "the requested restore source"
 	}
+}
+
+// restoreClampNotice explains a point-in-time target the control plane moved
+// back to the latest restorable point; empty when nothing was clamped.
+func restoreClampNotice(pitr *api.PITRRestoreTarget) string {
+	if pitr == nil || !pitr.RestoreTimeClamped {
+		return ""
+	}
+	return fmt.Sprintf("Note: %s is past the latest restorable point, so the restore runs to %s instead (%s earlier).\n",
+		pitr.RequestedRestoreTime.UTC().Format(time.RFC3339),
+		pitr.RestoreTime.UTC().Format(time.RFC3339),
+		pitr.RequestedRestoreTime.Sub(pitr.RestoreTime).Round(time.Second))
 }
 
 // restoreOutcome states what is now true after a successful restore, per
@@ -2006,6 +2034,8 @@ func jobDone(job api.Job) bool {
 	}
 }
 
+// writeBackupTable lists backups. An expired backup's file is gone from
+// storage, so it is marked and explained rather than shown as restorable.
 func writeBackupTable(out io.Writer, backups []api.Backup) {
 	writer := tabwriter.NewWriter(out, 0, 8, 2, ' ', 0)
 	_, _ = fmt.Fprintln(writer, "ID\tLABEL\tSTATE\tVERIFY\tSIZE\tCREATED_AT\tBACKUP_KEY")
@@ -2015,7 +2045,7 @@ func writeBackupTable(out io.Writer, backups []api.Backup) {
 			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			backup.ID,
 			firstNonEmpty(backup.Label, "-"),
-			backup.State,
+			backupStateLabel(backup.State),
 			firstNonEmpty(backup.VerificationState, "-"),
 			formatBytes(backup.SizeBytes),
 			formatTime(backup.CreatedAt),
@@ -2023,6 +2053,16 @@ func writeBackupTable(out io.Writer, backups []api.Backup) {
 		)
 	}
 	_ = writer.Flush()
+	if slices.ContainsFunc(backups, func(backup api.Backup) bool { return backup.State == "expired" }) {
+		_, _ = fmt.Fprintln(out, "expired*: the backup's file is no longer in storage; it is listed as a record and cannot be restored.")
+	}
+}
+
+func backupStateLabel(state string) string {
+	if state == "expired" {
+		return "expired*"
+	}
+	return firstNonEmpty(state, "-")
 }
 
 // jobTypeLabels maps internal job-kind tokens to the customer-facing action
@@ -2030,30 +2070,50 @@ func writeBackupTable(out io.Writer, backups []api.Backup) {
 // must never print raw kinds like "instance.create" or "branch.create"; JSON
 // output keeps the raw API values for machines.
 var jobTypeLabels = map[string]string{
-	"project.apply_plan":            "Applying configuration",
-	"project.backup":                "Creating backup",
-	"project.backup_delete":         "Deleting backup",
-	"project.import":                "Importing data",
-	"project.import_follow_start":   "Starting live import",
-	"project.import_follow_status":  "Checking import progress",
-	"project.import_follow_cutover": "Finalizing import",
-	"project.import_follow_abort":   "Canceling import",
-	"project.restore":               "Restoring database",
-	"project.rotate_credentials":    "Rotating credentials",
-	"project.promote_preview":       "Promoting preview",
-	"project.extension_enable":      "Enabling extension",
-	"project.extension_disable":     "Disabling extension",
-	"integration.sync_env":          "Syncing environment variables",
-	"integration.clerk_backfill":    "Syncing account",
-	"instance.create":               "Provisioning database",
-	"instance.destroy":              "Deleting database",
-	"instance.sleep":                "Pausing database",
-	"instance.wake":                 "Resuming database",
-	"instance.seed_standby":         "Setting up replication",
-	"instance.pitr_restore":         "Restoring to point in time",
-	"instance.set_readonly":         "Updating database access mode",
-	"branch.create":                 "Creating preview",
-	"host.health_probe":             "Health check",
+	"project.apply_plan":              "Applying configuration",
+	"project.backup":                  "Creating backup",
+	"project.backup_delete":           "Deleting backup",
+	"project.export":                  "Exporting database",
+	"project.import":                  "Importing data",
+	"project.import_follow_start":     "Starting live import",
+	"project.import_follow_status":    "Checking import progress",
+	"project.import_follow_cutover":   "Finalizing import",
+	"project.import_follow_abort":     "Canceling import",
+	"project.restore":                 "Restoring database",
+	"project.rotate_credentials":      "Rotating credentials",
+	"project.expire_credential":       "Retiring old credentials",
+	"project.promote_preview":         "Promoting preview",
+	"project.extension_enable":        "Enabling extension",
+	"project.extension_disable":       "Disabling extension",
+	"project.extension_update":        "Updating extension",
+	"project.upgrade_minor":           "Applying Postgres update",
+	"project.upgrade_major_preflight": "Checking upgrade readiness",
+	"project.upgrade_major":           "Upgrading Postgres version",
+	"project.upgrade_major_confirm":   "Completing version upgrade",
+	"project.upgrade_major_rollback":  "Rolling back version upgrade",
+	"project.app_role_enable":         "Enabling app role",
+	"project.app_role_rotate":         "Rotating app role password",
+	"project.relocate":                "Moving database",
+	"integration.sync_env":            "Syncing environment variables",
+	"integration.clerk_backfill":      "Syncing account",
+	"instance.create":                 "Provisioning database",
+	"instance.destroy":                "Deleting database",
+	"instance.sleep":                  "Pausing database",
+	"instance.wake":                   "Resuming database",
+	"instance.seed_standby":           "Setting up replication",
+	"instance.pitr_restore":           "Restoring to point in time",
+	"instance.set_readonly":           "Updating database access mode",
+	"instance.arc_cache":              "Optimizing cache allocation",
+	"instance.recordsize":             "Optimizing storage layout",
+	"branch.create":                   "Creating preview",
+	"host.health_probe":               "Health check",
+	"kv.create":                       "Creating K/V store",
+	"kv.destroy":                      "Deleting K/V store",
+	"kv.resize":                       "Resizing K/V store",
+	"kv.rotate_token":                 "Rotating K/V token",
+	"kv.flush":                        "Emptying K/V store",
+	"kv.stop":                         "Stopping K/V store",
+	"kv.start":                        "Starting K/V store",
 }
 
 // jobTypeLabel converts an internal job kind into its customer-facing label,

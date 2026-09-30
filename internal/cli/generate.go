@@ -10,14 +10,11 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/capydatabase/capydb-cli/internal/api"
-	"github.com/capydatabase/capydb-cli/internal/typegen"
 )
 
 // newGenerateCommand groups the code generators that render the linked
-// database's live schema as source code. TypeScript, Zod and Drizzle are
-// generated server-side (one implementation shared with the API and MCP
-// server); Go and Python are rendered locally from the same schema document
-// until they move next to the others.
+// database's live schema as source code. Every language is generated
+// server-side, one implementation shared with the API and the MCP server.
 func (a *app) newGenerateCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "generate",
@@ -34,34 +31,32 @@ func (a *app) newGenerateCommand() *cobra.Command {
 		use: "drizzle", short: "Generate a Drizzle schema from the database schema", language: "drizzle",
 	}))
 	command.AddCommand(a.newGenerateSubcommand(generatorSpec{
-		use: "go", short: "Generate Go structs and column constants from the database schema", language: "go", local: true,
+		use: "go", short: "Generate Go structs and column constants from the database schema", language: "go",
 	}))
 	command.AddCommand(a.newGenerateSubcommand(generatorSpec{
-		use: "python", short: "Generate Python dataclasses or pydantic models from the database schema", language: "python", local: true,
+		use: "python", short: "Generate Python dataclasses or pydantic models from the database schema", language: "python",
 	}))
 	return command
 }
 
-// generatorSpec describes one `generate` subcommand. local generators render
-// the schema document in the CLI; the rest ask the control plane.
+// generatorSpec describes one `generate` subcommand.
 type generatorSpec struct {
 	use      string
 	short    string
 	language string
-	local    bool
 }
 
-// generateOptions are the per-invocation flag values.
+// generateOptions are the per-invocation flag values. style is the
+// TypeScript or Python output shape; goPackage the Go package name.
 type generateOptions struct {
-	goPackage   string
-	outPath     string
-	print       bool
-	previewID   string
-	projectRef  string
-	pythonStyle string
-	style       string
-	watch       bool
-	watchOpts   schemaWatchOptions
+	goPackage  string
+	outPath    string
+	print      bool
+	previewID  string
+	projectRef string
+	style      string
+	watch      bool
+	watchOpts  schemaWatchOptions
 }
 
 func (a *app) newGenerateSubcommand(spec generatorSpec) *cobra.Command {
@@ -72,7 +67,7 @@ func (a *app) newGenerateSubcommand(spec generatorSpec) *cobra.Command {
 		Short: spec.short,
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := validateGenerateOptions(spec, options); err != nil {
+			if err := validateGenerateOptions(options); err != nil {
 				return err
 			}
 			client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
@@ -86,7 +81,7 @@ func (a *app) newGenerateSubcommand(spec generatorSpec) *cobra.Command {
 			if options.watch {
 				return a.runGenerateWatch(cmd, client, target, spec, options)
 			}
-			types, err := renderGenerated(cmd.Context(), client, target, spec, options, nil)
+			types, err := renderGenerated(cmd.Context(), client, target, spec, options)
 			if err != nil {
 				return err
 			}
@@ -107,24 +102,16 @@ func (a *app) newGenerateSubcommand(spec generatorSpec) *cobra.Command {
 	case "go":
 		command.Flags().StringVar(&options.goPackage, "package", "db", "Go package name for the generated file")
 	case "python":
-		command.Flags().StringVar(&options.pythonStyle, "style", typegen.PythonStyleDataclass, "Python output shape: dataclass (standard library) or pydantic")
+		command.Flags().StringVar(&options.style, "style", "dataclass", "Python output shape: dataclass (standard library) or pydantic")
 	}
 	return command
 }
 
-func validateGenerateOptions(spec generatorSpec, options generateOptions) error {
+// validateGenerateOptions rejects flag combinations. Values (--style,
+// --package) are validated by the control plane, which owns the generators.
+func validateGenerateOptions(options generateOptions) error {
 	if options.watch && options.print {
 		return usageErrorf("--watch writes a file on every change; it cannot be combined with --print")
-	}
-	switch spec.language {
-	case "go":
-		if !typegen.ValidGoPackage(options.goPackage) {
-			return usageErrorf("--package %q is not a valid Go package name", options.goPackage)
-		}
-	case "python":
-		if options.pythonStyle != typegen.PythonStyleDataclass && options.pythonStyle != typegen.PythonStylePydantic {
-			return usageErrorf("--style must be %s or %s", typegen.PythonStyleDataclass, typegen.PythonStylePydantic)
-		}
 	}
 	return nil
 }
@@ -161,47 +148,23 @@ func fetchTargetSchema(ctx context.Context, client *api.Client, target schemaTar
 	return schema, nil
 }
 
-// renderGenerated produces the file for spec. schema, when non-nil, is the
-// already-fetched document (watch mode) so local generators do not fetch it
-// twice; server-side generators always ask the control plane.
-func renderGenerated(ctx context.Context, client *api.Client, target schemaTarget, spec generatorSpec, options generateOptions, schema *api.DatabaseSchema) (api.GeneratedTypes, error) {
-	if !spec.local {
-		var types api.GeneratedTypes
-		var err error
-		if target.previewID != "" {
-			types, err = client.GeneratePreviewSchemaTypes(ctx, target.previewID, spec.language, options.style)
-		} else {
-			types, err = client.GenerateProjectSchemaTypes(ctx, target.project.ID, spec.language, options.style)
-		}
-		if err != nil {
-			return api.GeneratedTypes{}, fmt.Errorf("generate %s: %w", spec.language, err)
-		}
-		return types, nil
+// renderGenerated asks the control plane to render the target's schema.
+func renderGenerated(ctx context.Context, client *api.Client, target schemaTarget, spec generatorSpec, options generateOptions) (api.GeneratedTypes, error) {
+	request := api.TypegenRequest{Language: spec.language, Style: options.style}
+	if spec.language == "go" {
+		request.Package = options.goPackage
 	}
-
-	if schema == nil {
-		fetched, err := fetchTargetSchema(ctx, client, target)
-		if err != nil {
-			return api.GeneratedTypes{}, err
-		}
-		schema = &fetched
+	var types api.GeneratedTypes
+	var err error
+	if target.previewID != "" {
+		types, err = client.GeneratePreviewSchemaTypes(ctx, target.previewID, request)
+	} else {
+		types, err = client.GenerateProjectSchemaTypes(ctx, target.project.ID, request)
 	}
-	switch spec.language {
-	case "go":
-		content, err := typegen.GenerateGo(*schema, options.goPackage)
-		if err != nil {
-			return api.GeneratedTypes{}, fmt.Errorf("generate go: %w", err)
-		}
-		return api.GeneratedTypes{Content: content, Filename: typegen.GoFilename, Language: "go"}, nil
-	case "python":
-		content, err := typegen.GeneratePython(*schema, options.pythonStyle)
-		if err != nil {
-			return api.GeneratedTypes{}, fmt.Errorf("generate python: %w", err)
-		}
-		return api.GeneratedTypes{Content: content, Filename: typegen.PythonFilename, Language: "python", Style: options.pythonStyle}, nil
-	default:
-		return api.GeneratedTypes{}, fmt.Errorf("no local generator for %s", spec.language)
+	if err != nil {
+		return api.GeneratedTypes{}, fmt.Errorf("generate %s: %w", spec.language, err)
 	}
+	return types, nil
 }
 
 // writeGenerated writes the file and returns the path it went to.

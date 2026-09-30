@@ -40,9 +40,7 @@ func TestCreateCommandWritesEnvAndProjectConfig(t *testing.T) {
 				},
 			})
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/regions":
-			writeJSON(t, w, map[string]any{
-				"regions": []string{"swedencentral"},
-			})
+			writeJSON(t, w, regionsFixture())
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/projects":
 			writeJSON(t, w, map[string]any{
 				"job": map[string]any{},

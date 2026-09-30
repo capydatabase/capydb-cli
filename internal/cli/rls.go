@@ -171,6 +171,10 @@ that write to tables the bundle FORCEs (they no longer bypass row security).`,
 				})
 			}
 			writeRLSSummary(cmd, result, sourceDescription, written)
+			if options.Target == capyrls.TargetCapyDB && options.RoleModel == capyrls.RoleSplit {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "Split role model on CapyDB: the bundle grants to the project's runtime login, app_user, and stops if it does not exist. "+
+					"Check with `capydb roles app show`, create it with `capydb roles app enable`, and point the app at "+appPoolURLVar+" (written by `capydb env pull`).")
+			}
 			return nil
 		},
 	}

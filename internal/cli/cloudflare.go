@@ -114,8 +114,8 @@ document. The database is ready when the job completes.`,
 	createCommand.Flags().StringVar(&name, "name", "", "Database name")
 	createCommand.Flags().StringVar(&accountName, "account-name", "", "Name for the CapyDB organization created on this account's first database")
 	createCommand.Flags().StringVar(&plan, "plan", "", "Plan Cloudflare invoices: vibe (default), ship, or business")
-	createCommand.Flags().StringVar(&region, "region", "", "Region for the database (server picks one when omitted)")
-	createCommand.Flags().StringVar(&postgresVersion, "postgres-version", "", "Postgres major version: 16, 17, or 18 (server default when omitted)")
+	createCommand.Flags().StringVar(&region, "region", "", "Region id for the database, e.g. eu-north-1 (see `capydb regions`; server picks one when omitted)")
+	createCommand.Flags().StringVar(&postgresVersion, "postgres-version", "", postgresVersionFlagHelp+" (server default when omitted)")
 
 	command.AddCommand(createCommand)
 	return command

@@ -94,7 +94,7 @@ var initScaffolds = map[string]initScaffold{
 		packages:    "@capydb/drizzle drizzle-orm@rc postgres",
 		devPackages: "drizzle-kit@rc",
 		files: func(ctx context.Context, client *api.Client, project api.Project, schema string) ([]initFile, error) {
-			types, err := client.GenerateProjectSchemaTypes(ctx, project.ID, "drizzle", "")
+			types, err := client.GenerateProjectSchemaTypes(ctx, project.ID, api.TypegenRequest{Language: "drizzle"})
 			if err != nil {
 				return nil, fmt.Errorf("generate drizzle schema: %w", err)
 			}
@@ -158,7 +158,7 @@ var initScaffolds = map[string]initScaffold{
 		packages:    "kysely pg",
 		devPackages: "@types/pg",
 		files: func(ctx context.Context, client *api.Client, project api.Project, schema string) ([]initFile, error) {
-			types, err := client.GenerateProjectSchemaTypes(ctx, project.ID, "typescript", "")
+			types, err := client.GenerateProjectSchemaTypes(ctx, project.ID, api.TypegenRequest{Language: "typescript"})
 			if err != nil {
 				return nil, fmt.Errorf("generate typescript types: %w", err)
 			}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -176,13 +177,21 @@ func (a *app) newSQLCommand() *cobra.Command {
 	var allowUnqualifiedWrites bool
 	var asJSON bool
 	var maxRows int
+	var previewID string
 	var projectRef string
 	var readOnly bool
 
 	command := &cobra.Command{
 		Use:   "sql <query>",
-		Short: "Run a SQL query against the project database",
-		Args:  cobra.ExactArgs(1),
+		Short: "Run a SQL query against the project database or a preview",
+		Long: `Runs one SQL statement and prints the result. An UPDATE or DELETE with no WHERE, and TRUNCATE, are
+refused unless --allow-unqualified-writes is passed; --read-only runs the statement in a read-only
+transaction so the server refuses every write. Rows are capped (server default 200, --max-rows up
+to 1000) and a statement times out after 15 seconds.
+
+--preview runs against a preview database instead - the place to rehearse a destructive statement
+before running it on the project. Preview executions are not recorded in the project's SQL history.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			query := strings.TrimSpace(args[0])
@@ -190,19 +199,28 @@ func (a *app) newSQLCommand() *cobra.Command {
 				return usageErrorf("query cannot be empty")
 			}
 
+			if readOnly && allowUnqualifiedWrites {
+				return usageErrorf("--read-only and --allow-unqualified-writes contradict each other")
+			}
+			previewID = strings.TrimSpace(previewID)
+			if previewID != "" && strings.TrimSpace(projectRef) != "" {
+				return usageErrorf("--preview and --project are mutually exclusive")
+			}
+
 			client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
 			if err != nil {
 				return err
 			}
-			project, err := a.resolveProject(ctx, client, projectRef)
-			if err != nil {
-				return err
+			var result api.SQLResult
+			if previewID != "" {
+				result, err = client.RunPreviewSQL(ctx, previewID, query, maxRows, allowUnqualifiedWrites, readOnly)
+			} else {
+				project, resolveErr := a.resolveProject(ctx, client, projectRef)
+				if resolveErr != nil {
+					return resolveErr
+				}
+				result, err = client.RunSQL(ctx, project.ID, query, maxRows, allowUnqualifiedWrites, readOnly)
 			}
-
-			if readOnly && allowUnqualifiedWrites {
-				return usageErrorf("--read-only and --allow-unqualified-writes contradict each other")
-			}
-			result, err := client.RunSQL(ctx, project.ID, query, maxRows, allowUnqualifiedWrites, readOnly)
 			if err != nil {
 				return fmt.Errorf("run sql: %w", err)
 			}
@@ -219,6 +237,7 @@ func (a *app) newSQLCommand() *cobra.Command {
 	}
 
 	command.Flags().StringVar(&projectRef, "project", "", "Project id, slug, or name")
+	command.Flags().StringVar(&previewID, "preview", "", "Run against this preview database (id) instead of the project database")
 	command.Flags().IntVar(&maxRows, "max-rows", 0, "Maximum number of rows to return (server default when omitted)")
 	// Unlike the dashboard's SQL console, the CLI is guarded by default: it is
 	// as likely to be running inside a script as under a person, and a script
@@ -238,7 +257,7 @@ func (a *app) newMetricsCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:     "metrics",
 		Aliases: []string{"observability"},
-		Short:   "Show storage, connection, and query metrics for a project",
+		Short:   "Show storage, connection, resume, and query metrics for a project",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -329,6 +348,45 @@ func truncateQuery(query string, limit int) string {
 	return flattened
 }
 
+// writeWakeLatency prints how long the database took to resume from a pause
+// over the reporting window. Nothing is printed when the control plane sent
+// no summary.
+func writeWakeLatency(out io.Writer, wake *api.ProjectWakeLatency) {
+	if wake == nil {
+		return
+	}
+	window := "last " + strconv.Itoa(wake.WindowHours) + "h"
+	if wake.WindowHours == 168 {
+		window = "last 7 days"
+	}
+	if wake.Wakes == 0 {
+		_, _ = fmt.Fprintf(out, "resumes (%s): none\n", window)
+		return
+	}
+	if wake.TimedWakes == 0 || wake.P50Ms == nil {
+		_, _ = fmt.Fprintf(out, "resumes (%s): %d, none timed\n", window, wake.Wakes)
+		return
+	}
+	line := fmt.Sprintf("resumes (%s): %d, p50 %s", window, wake.Wakes, formatMilliseconds(*wake.P50Ms))
+	if wake.P95Ms != nil {
+		line += ", p95 " + formatMilliseconds(*wake.P95Ms)
+	}
+	if wake.MaxMs != nil {
+		line += ", max " + formatMilliseconds(float64(*wake.MaxMs))
+	}
+	if wake.TimedWakes < wake.Wakes {
+		line += fmt.Sprintf(" (%d timed)", wake.TimedWakes)
+	}
+	_, _ = fmt.Fprintln(out, line)
+}
+
+func formatMilliseconds(ms float64) string {
+	if ms >= 1000 {
+		return strconv.FormatFloat(ms/1000, 'f', 1, 64) + "s"
+	}
+	return strconv.FormatFloat(ms, 'f', 0, 64) + "ms"
+}
+
 func writeObservabilityReport(out io.Writer, observability api.ProjectObservability) {
 	_, _ = fmt.Fprintf(
 		out,
@@ -344,6 +402,7 @@ func writeObservabilityReport(out io.Writer, observability api.ProjectObservabil
 		observability.ConnectionLimit,
 		formatPercent(observability.ConnectionUsagePercent),
 	)
+	writeWakeLatency(out, observability.Wake)
 
 	if len(observability.Alerts) == 0 {
 		_, _ = fmt.Fprintln(out, "alerts: none")

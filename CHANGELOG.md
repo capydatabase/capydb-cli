@@ -8,8 +8,114 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-30
+
+### Added
+
+- **`capydb postgres-versions`** lists the Postgres majors new databases can be created on, with
+  each one's release channel (`previous`, `stable` - the default - `current`, or `beta`), whether
+  it is the default, and whether it is production ready (`-o json` for the raw list).
+- `--postgres-version` on `create`, `ephemeral create` and `cloudflare create-database` documents
+  `19`, accepted while CapyDB offers it as a beta. `create`, `ephemeral create`/`status` and
+  `status --remote` show the database's major with its channel (`Postgres 18 (current)`) and print
+  the beta warning when the control plane sends one; `create -o json` adds `postgres_version`,
+  `postgres_channel` and `postgres_warning`.
+
+- **`capydb upgrade major|confirm|rollback|status`: self-serve Postgres major upgrades.**
+  `upgrade major --target-major N` runs the preflight first and starts the upgrade only when it
+  passes (the control plane requires a passing preflight from the last hour); the previous
+  database is kept for 72 hours, until `upgrade confirm` deletes it or `upgrade rollback` returns
+  to it (discarding writes since the cutover). Each step needs its own single-use approval from an
+  organization admin, passed with `--approval-token` or `CAPYDB_APPROVAL_TOKEN` and checked before
+  anything runs, plus the usual typed-name confirmation or `--confirm`. `upgrade status` shows the
+  upgrade in flight and `rollback_available_until`. A 403 says that self-serve upgrades must be
+  enabled for the organization; they are off until CapyDB turns them on.
+
+- **`capydb restore --restore-time` says when the time was clamped.** A point-in-time target later
+  than the latest restorable point is now moved back to that point instead of refused; the command
+  prints the requested and effective times (on stderr with `-o json`, where stdout stays the job),
+  and the `--wait` summary names the effective time.
+
+- **`capydb projects retry <project>`** re-runs a failed provisioning: the same database with the
+  same credentials, so env files keep working. Repeating it returns the job already in flight; a
+  project that failed after its database was provisioned is refused with an explanation. Supports
+  `--wait` and `-o json`.
+
+- **`capydb roles app show|enable|rotate`: the split role model's runtime login.** `enable`
+  creates `app_user` on the project's database (it checks first whether the project already has it
+  and whether the platform offers it), `rotate` replaces its password, and `show` reports whether
+  it exists and when it was created or rotated. All take `--project`, `-o json`, and `--wait` for
+  the job.
+- **`capydb env pull` (and `link`/`create`) write `DATABASE_APP_URL` and `DATABASE_APP_POOL_URL`**
+  when the project has its runtime login. `DATABASE_APP_URL` takes the same pooled-or-direct choice
+  `DATABASE_URL` makes for the detected stack; `DATABASE_APP_POOL_URL` is always pooled. A project
+  without the login gets no new lines.
+- `capydb migrate rls --role-model split` (default `--target capydb`) now ends with a note that the
+  bundle needs the project's runtime login and names `capydb roles app show|enable`.
+
+- **`capydb sql --preview <id>`** runs the statement against a preview database, with the same
+  guards (`--allow-unqualified-writes`, `--read-only`, `--max-rows`) - the way to rehearse a
+  destructive statement before running it on the project.
+
+- **`capydb integrations sync <vercel|netlify|cloudflare>`** re-pushes the project's connection env
+  vars to an already connected platform with the token CapyDB stored at connect time - for a
+  variable edited or deleted on the platform, or a failed push. A project without that integration
+  and a push already in flight are both explained. Supports `--wait` and `-o json`.
+
+- **`capydb notifications show|set`** reads and changes the organization's notification
+  preferences: whether alert emails are sent (`--alert-emails on|off`) and the extra recipients of
+  alert emails and billing notices (`--alert-recipients`, `--billing-recipients`; comma-separated,
+  `""` clears). `set` changes only the settings passed - it reads the current preferences and sends
+  the full replacement the API requires. `-o json` on both.
+
+- **`capydb logs --search/--sqlstate/--since/--until`** search the project's archived database
+  logs (last 30 days, newest first): `--sqlstate` takes five-character codes or two-character
+  classes, `--search` a case-insensitive substring, `--severity` still filters, and `--since` /
+  `--until` take RFC 3339 times or durations back from now (`90m`, `12h`, `7d`). `--cursor`
+  continues a page; `-o json` returns `{"search": {"entries", "next_cursor", "truncated"}}`.
+  Where log search is not enabled the command says so; `--follow` cannot be combined with it.
+- `capydb logs` shows a line's SQLSTATE in brackets when the log line carries one
+  (`ERROR   [42P01] relation "x" does not exist`); JSON entries carry `sqlstate`, `pid`, `user`
+  and `database`.
+
+- `capydb metrics` prints how long the database took to resume from a pause over the last seven
+  days: `resumes (last 7 days): 5, p50 148ms, p95 1.2s, max 1.8s` (the raw `wake` object is in
+  `-o json`).
+
+- **`capydb ephemeral create` sends your API key when one is configured** (`--api-key`,
+  `CAPYDB_API_KEY`, or a login), so the platform counts unclaimed databases against your account
+  instead of your network address. With no key it stays anonymous; status, claim and destroy are
+  still authenticated by the claim token alone.
+
 ### Changed
 
+- capydbclient v1.13.0 -> v1.14.0.
+- **`capydb db lint` runs server-side.** It calls the new lint endpoints
+  (`GET /v1/projects/{id}/lint`, `GET /v1/preview-databases/{id}/lint`) instead of running catalog
+  queries through the SQL endpoint, so an API key with only the `schema:read` scope can lint (a CI
+  key no longer needs `projects:write`). Output and `-o json` keep the same shape (`findings`,
+  `skipped`), and `--exit-code` still fails on warnings. A preview now gets the catalog checks too
+  (unindexed foreign keys, duplicate indexes, bloat); only the week-of-statistics checks are
+  skipped there.
+- **`capydb generate go` and `capydb generate python` render server-side**, like `types`, `zod`
+  and `drizzle`. The control plane's generators produce byte-for-byte what the CLI rendered
+  locally (verified against the shared golden files) and the file names are unchanged
+  (`models.go`, `models.py`), so the CLI's own copy is removed. `--package` and `--style` are
+  validated by the control plane; an invalid value now fails with its message rather than a local
+  usage error.
+- `capydb kv status` explains a `stopped` store (the platform stopped it while the organization is
+  suspended and offline; it keeps its data and starts again when the suspension lifts), and
+  `capydb backups list` marks `expired` backups - listed as a record, their file no longer in
+  storage - as not restorable.
+- Text output labels every job type the control plane reports (major-upgrade steps, app-role
+  enable and rotate, K/V stop and start, export, extension update, credential expiry, and the
+  storage-tuning jobs) instead of falling back to a reworded internal name.
+- **`capydb regions` shows each region's display name and location.** Region ids are now neutral
+  (`eu-north-1`); the table lists `REGION  NAME  LOCATION`, the bare `capydb regions` lists like
+  `capydb regions list`, and `-o json` returns `{"regions": [{"id", "display_name", "location"}]}`
+  (it was a list of ids). The `create` region prompt shows the same labels, and a `--region` the
+  list does not contain (such as the deprecated `hel1`) is passed to the control plane, which
+  resolves deprecated names and rejects unknown ones.
 - capyrls v1.15.0 -> v1.16.0.
 - **`capydb migrate rls --role-model split` works on CapyDB.** It was refused for the default
   `--target capydb`. It now builds a bundle for the project's runtime role `app_user`, which the
@@ -696,7 +802,9 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 - First release: project linking, `env pull`, preview databases, imports, logs, and studio.
 
-[Unreleased]: https://github.com/capydatabase/capydb-cli/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/capydatabase/capydb-cli/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/capydatabase/capydb-cli/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/capydatabase/capydb-cli/compare/v1.8.0...v2.0.0
 [1.8.0]: https://github.com/capydatabase/capydb-cli/compare/v1.7.1...v1.8.0
 [1.7.1]: https://github.com/capydatabase/capydb-cli/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/capydatabase/capydb-cli/compare/v1.6.0...v1.7.0

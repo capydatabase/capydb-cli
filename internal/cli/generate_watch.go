@@ -162,8 +162,10 @@ func (a *app) runGenerateWatch(cmd *cobra.Command, client *api.Client, target sc
 		return schemaPoll{schema: &schema}, nil
 	}
 
-	onChange := func(ctx context.Context, schema api.DatabaseSchema) error {
-		types, err := renderGenerated(ctx, client, target, spec, options, &schema)
+	// The schema document only detects a change; the file is rendered by the
+	// control plane, like every other generate run.
+	onChange := func(ctx context.Context, _ api.DatabaseSchema) error {
+		types, err := renderGenerated(ctx, client, target, spec, options)
 		if err != nil {
 			return err
 		}

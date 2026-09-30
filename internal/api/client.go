@@ -46,6 +46,8 @@ type (
 	CreateImportRequest                = capydbclient.CreateImportRequest
 	CreateRestorePointRequest          = capydbclient.CreateRestorePointRequest
 	CreateRestoreRequest               = capydbclient.CreateRestoreRequest
+	CreateRestoreResponse              = capydbclient.CreateRestoreResponse
+	PITRRestoreTarget                  = capydbclient.PITRRestoreTarget
 	EphemeralDatabase                  = capydbclient.EphemeralDatabase
 	EphemeralDatabaseClaimRequest      = capydbclient.EphemeralDatabaseClaimRequest
 	EphemeralDatabaseCreateRequest     = capydbclient.EphemeralDatabaseCreateRequest
@@ -71,7 +73,17 @@ type (
 	ProjectIntegration                 = capydbclient.ProjectIntegration
 	ProjectLogEntry                    = capydbclient.ProjectLogEntry
 	ProjectLogs                        = capydbclient.ProjectLogs
+	ProjectLogSearch                   = capydbclient.ProjectLogSearch
 	ProjectObservability               = capydbclient.ProjectObservability
+	ProjectWakeLatency                 = capydbclient.ProjectWakeLatency
+	PostgresVersion                    = capydbclient.PostgresVersion
+	MajorUpgradeStatus                 = capydbclient.MajorUpgradeStatus
+	AppRoleStatus                      = capydbclient.AppRoleStatus
+	NotificationPreferences            = capydbclient.NotificationPreferences
+	PutNotificationPreferencesRequest  = capydbclient.PutNotificationPreferencesRequest
+	LintReport                         = capydbclient.LintReport
+	LintFinding                        = capydbclient.LintFinding
+	AppRoleConnectionInfo              = capydbclient.AppRoleConnectionInfo
 	ProvisionCloudflareDatabaseRequest = capydbclient.ProvisionCloudflareDatabaseRequest
 	ProvisionCloudflareDatabaseResult  = capydbclient.ProvisionCloudflareDatabaseResponse
 	PublicStatusComponent              = capydbclient.StatusComponent
@@ -80,6 +92,7 @@ type (
 	SQLResult                          = capydbclient.SQLQueryResult
 	ScheduledBackup                    = capydbclient.ScheduledBackup
 	RedundantIndex                     = capydbclient.RedundantIndex
+	RegionDetail                       = capydbclient.RegionDetail
 	SlowQuery                          = capydbclient.SlowQuerySample
 	UnusedIndex                        = capydbclient.UnusedIndex
 	UpsertScheduledBackupRequest       = capydbclient.UpsertScheduledBackupRequest
@@ -505,14 +518,15 @@ func (c *Client) CreatePreviewDatabase(ctx context.Context, projectID string, re
 	return response.Preview, response.Job, nil
 }
 
-func (c *Client) CreateRestore(ctx context.Context, projectID string, request CreateRestoreRequest) (Job, error) {
-	var response struct {
-		Job Job `json:"job"`
-	}
+// CreateRestore enqueues a restore. For a point-in-time source the response
+// also reports the time the restore runs to, which is earlier than the
+// request when the request was past the latest restorable point.
+func (c *Client) CreateRestore(ctx context.Context, projectID string, request CreateRestoreRequest) (CreateRestoreResponse, error) {
+	var response CreateRestoreResponse
 	if err := c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/restores", request, &response); err != nil {
-		return Job{}, err
+		return CreateRestoreResponse{}, err
 	}
-	return response.Job, nil
+	return response, nil
 }
 
 // DeleteProject queues deletion of a project's database, previews, and
@@ -599,6 +613,59 @@ type ProjectLogsQuery struct {
 
 // GetProjectLogs fetches one window (or tail increment) of the project's
 // database logs.
+// ProjectLogSearchQuery filters a log search. SQLStates holds five-character
+// codes or two-character classes; Since and Until bound the window (the
+// server defaults to the 24 hours before now).
+type ProjectLogSearchQuery struct {
+	Cursor     string
+	Limit      int
+	Query      string
+	SQLStates  []string
+	Severities []string
+	Since      time.Time
+	Until      time.Time
+}
+
+// SearchProjectLogs searches the project's archived database logs, newest
+// first. The control plane answers 503 where log search is not enabled.
+func (c *Client) SearchProjectLogs(ctx context.Context, projectID string, query ProjectLogSearchQuery) (ProjectLogSearch, error) {
+	values := url.Values{}
+	if query.Cursor != "" {
+		values.Set("cursor", query.Cursor)
+	}
+	if query.Limit > 0 {
+		values.Set("limit", strconv.Itoa(query.Limit))
+	}
+	if query.Query != "" {
+		values.Set("q", query.Query)
+	}
+	if len(query.SQLStates) > 0 {
+		values.Set("sqlstate", strings.Join(query.SQLStates, ","))
+	}
+	if len(query.Severities) > 0 {
+		values.Set("severity", strings.Join(query.Severities, ","))
+	}
+	if !query.Since.IsZero() {
+		values.Set("since", query.Since.UTC().Format(time.RFC3339))
+	}
+	if !query.Until.IsZero() {
+		values.Set("until", query.Until.UTC().Format(time.RFC3339))
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/logs/search"
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+
+	var response struct {
+		Search ProjectLogSearch `json:"search"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &response); err != nil {
+		return ProjectLogSearch{}, err
+	}
+	response.Search.Entries = capydbclient.NormalizeList(response.Search.Entries)
+	return response.Search, nil
+}
+
 func (c *Client) GetProjectLogs(ctx context.Context, projectID string, query ProjectLogsQuery) (ProjectLogs, error) {
 	values := url.Values{}
 	if query.Cursor != "" {
@@ -690,6 +757,16 @@ func (c *Client) GetProjectObservability(ctx context.Context, projectID string) 
 // executor-proven guarantee rather than a client-side check. Also sent only
 // when true, for the same older-control-plane reason.
 func (c *Client) RunSQL(ctx context.Context, projectID, query string, maxRows int, allowUnqualifiedWrites, readOnly bool) (SQLResult, error) {
+	return c.runSQL(ctx, "/v1/projects/"+projectID+"/sql", query, maxRows, allowUnqualifiedWrites, readOnly)
+}
+
+// RunPreviewSQL runs a statement against a preview database, with the same
+// guards as RunSQL. Preview executions are not recorded in SQL history.
+func (c *Client) RunPreviewSQL(ctx context.Context, previewID, query string, maxRows int, allowUnqualifiedWrites, readOnly bool) (SQLResult, error) {
+	return c.runSQL(ctx, "/v1/preview-databases/"+url.PathEscape(previewID)+"/sql", query, maxRows, allowUnqualifiedWrites, readOnly)
+}
+
+func (c *Client) runSQL(ctx context.Context, path, query string, maxRows int, allowUnqualifiedWrites, readOnly bool) (SQLResult, error) {
 	payload := map[string]any{
 		"query": query,
 	}
@@ -706,7 +783,7 @@ func (c *Client) RunSQL(ctx context.Context, projectID, query string, maxRows in
 	var response struct {
 		Result SQLResult `json:"result"`
 	}
-	if err := c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/sql", payload, &response); err != nil {
+	if err := c.do(ctx, http.MethodPost, path, payload, &response); err != nil {
 		return SQLResult{}, err
 	}
 	return response.Result, nil
@@ -859,14 +936,24 @@ func (c *Client) RotateCredentials(ctx context.Context, projectID string, graceH
 	return response.Job, nil
 }
 
-func (c *Client) ListRegions(ctx context.Context) ([]string, error) {
-	var response struct {
-		Regions []string `json:"regions"`
+// ListPostgresVersions returns the Postgres majors a new database can be
+// created on, oldest first, with each one's release channel.
+func (c *Client) ListPostgresVersions(ctx context.Context) ([]PostgresVersion, error) {
+	var response capydbclient.PostgresVersionsResponse
+	if err := c.do(ctx, http.MethodGet, "/v1/postgres-versions", nil, &response); err != nil {
+		return nil, err
 	}
+	return capydbclient.NormalizeList(response.Versions), nil
+}
+
+// ListRegions returns the regions open for new projects with their display
+// labels, in the order the control plane lists them.
+func (c *Client) ListRegions(ctx context.Context) ([]RegionDetail, error) {
+	var response capydbclient.RegionsResponse
 	if err := c.do(ctx, http.MethodGet, "/v1/regions", nil, &response); err != nil {
 		return nil, err
 	}
-	return response.Regions, nil
+	return capydbclient.NormalizeList(response.RegionDetails), nil
 }
 
 func (c *Client) ListPreviewDatabases(ctx context.Context, projectID string) ([]PreviewDetails, error) {
@@ -1204,6 +1291,170 @@ func (c *Client) MajorUpgradePreflight(ctx context.Context, projectID string, ta
 	return response.Job, nil
 }
 
+// LintProject runs the server-side schema and index checks against the
+// project database (schema:read scope).
+func (c *Client) LintProject(ctx context.Context, projectID string) (LintReport, error) {
+	return c.lint(ctx, "/v1/projects/"+url.PathEscape(projectID)+"/lint")
+}
+
+// LintPreview runs the schema and catalog checks against a preview database.
+func (c *Client) LintPreview(ctx context.Context, previewID string) (LintReport, error) {
+	return c.lint(ctx, "/v1/preview-databases/"+url.PathEscape(previewID)+"/lint")
+}
+
+func (c *Client) lint(ctx context.Context, path string) (LintReport, error) {
+	var response struct {
+		Lint LintReport `json:"lint"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &response); err != nil {
+		return LintReport{}, err
+	}
+	response.Lint.Findings = capydbclient.NormalizeList(response.Lint.Findings)
+	response.Lint.Skipped = capydbclient.NormalizeList(response.Lint.Skipped)
+	return response.Lint, nil
+}
+
+// SyncProjectIntegrationEnv queues a re-push of the project's connection env
+// vars to a connected vercel, netlify or cloudflare integration, using the
+// token stored when it was connected.
+func (c *Client) SyncProjectIntegrationEnv(ctx context.Context, projectID, provider string) (Job, error) {
+	var response struct {
+		Job Job `json:"job"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/integrations/" + url.PathEscape(provider) + "/sync"
+	if err := c.do(ctx, http.MethodPost, path, nil, &response); err != nil {
+		return Job{}, err
+	}
+	return response.Job, nil
+}
+
+// GetNotificationPreferences returns which notification emails the
+// organization receives and who receives them (the defaults when it never
+// saved any).
+func (c *Client) GetNotificationPreferences(ctx context.Context, orgID string) (NotificationPreferences, error) {
+	var response struct {
+		Preferences NotificationPreferences `json:"notification_preferences"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/organizations/"+url.PathEscape(orgID)+"/notification-preferences", nil, &response); err != nil {
+		return NotificationPreferences{}, err
+	}
+	return normalizeNotificationPreferences(response.Preferences), nil
+}
+
+// PutNotificationPreferences replaces the organization's notification
+// preferences: every field is sent, so read-modify-write to change one.
+func (c *Client) PutNotificationPreferences(ctx context.Context, orgID string, request PutNotificationPreferencesRequest) (NotificationPreferences, error) {
+	request.AlertEmailRecipients = capydbclient.NormalizeList(request.AlertEmailRecipients)
+	request.BillingEmailRecipients = capydbclient.NormalizeList(request.BillingEmailRecipients)
+	var response struct {
+		Preferences NotificationPreferences `json:"notification_preferences"`
+	}
+	if err := c.do(ctx, http.MethodPut, "/v1/organizations/"+url.PathEscape(orgID)+"/notification-preferences", request, &response); err != nil {
+		return NotificationPreferences{}, err
+	}
+	return normalizeNotificationPreferences(response.Preferences), nil
+}
+
+func normalizeNotificationPreferences(preferences NotificationPreferences) NotificationPreferences {
+	preferences.AlertEmailRecipients = capydbclient.NormalizeList(preferences.AlertEmailRecipients)
+	preferences.BillingEmailRecipients = capydbclient.NormalizeList(preferences.BillingEmailRecipients)
+	return preferences
+}
+
+// GetAppRole reports whether the project has its split-role runtime login
+// (app_user) and whether it may enable it now.
+func (c *Client) GetAppRole(ctx context.Context, projectID string) (AppRoleStatus, error) {
+	var response struct {
+		AppRole AppRoleStatus `json:"app_role"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(projectID)+"/roles/app", nil, &response); err != nil {
+		return AppRoleStatus{}, err
+	}
+	return response.AppRole, nil
+}
+
+// EnableAppRole queues the job that creates the project's runtime login. The
+// control plane answers 404 while the platform does not offer it.
+func (c *Client) EnableAppRole(ctx context.Context, projectID string) (Job, error) {
+	return c.appRoleJob(ctx, projectID, "")
+}
+
+// RotateAppRole queues the job that replaces the runtime login's password.
+func (c *Client) RotateAppRole(ctx context.Context, projectID string) (Job, error) {
+	return c.appRoleJob(ctx, projectID, "/rotate")
+}
+
+func (c *Client) appRoleJob(ctx context.Context, projectID, suffix string) (Job, error) {
+	var response struct {
+		Job Job `json:"job"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(projectID)+"/roles/app"+suffix, nil, &response); err != nil {
+		return Job{}, err
+	}
+	return response.Job, nil
+}
+
+// RetryProjectProvisioning re-runs a failed provisioning. It returns the job
+// already in flight when one is queued or running.
+func (c *Client) RetryProjectProvisioning(ctx context.Context, projectID string) (Job, error) {
+	var response struct {
+		Job Job `json:"job"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(projectID)+"/retry-provisioning", nil, &response); err != nil {
+		return Job{}, err
+	}
+	return response.Job, nil
+}
+
+// GetMajorUpgradeStatus returns the major upgrade in flight, or nil when
+// there is none.
+func (c *Client) GetMajorUpgradeStatus(ctx context.Context, projectID string) (*MajorUpgradeStatus, error) {
+	var response capydbclient.MajorUpgradeStatusResponse
+	if err := c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(projectID)+"/upgrade/major", nil, &response); err != nil {
+		return nil, err
+	}
+	return response.Upgrade, nil
+}
+
+// UpgradeProjectMajor starts a major upgrade to targetMajor. The control
+// plane requires a passing preflight for that target from the last hour and a
+// single-use project.upgrade_major approval token.
+func (c *Client) UpgradeProjectMajor(ctx context.Context, projectID string, targetMajor int, approvalToken string) (Job, error) {
+	query := url.Values{}
+	query.Set("target_major", strconv.Itoa(targetMajor))
+	return c.majorUpgradeStep(ctx, projectID, "", query, approvalToken)
+}
+
+// ConfirmMajorUpgrade finalizes a major upgrade, destroying the database kept
+// for rollback (project.upgrade_major_confirm approval token).
+func (c *Client) ConfirmMajorUpgrade(ctx context.Context, projectID, approvalToken string) (Job, error) {
+	return c.majorUpgradeStep(ctx, projectID, "/confirm", url.Values{}, approvalToken)
+}
+
+// RollbackMajorUpgrade swaps the project back to the database kept from
+// before the upgrade, discarding writes since the cutover
+// (project.upgrade_major_rollback approval token).
+func (c *Client) RollbackMajorUpgrade(ctx context.Context, projectID, approvalToken string) (Job, error) {
+	return c.majorUpgradeStep(ctx, projectID, "/rollback", url.Values{}, approvalToken)
+}
+
+func (c *Client) majorUpgradeStep(ctx context.Context, projectID, suffix string, query url.Values, approvalToken string) (Job, error) {
+	var response struct {
+		Job Job `json:"job"`
+	}
+	if token := strings.TrimSpace(approvalToken); token != "" {
+		query.Set("approval_token", token)
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/upgrade/major" + suffix
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	if err := c.do(ctx, http.MethodPost, path, nil, &response); err != nil {
+		return Job{}, err
+	}
+	return response.Job, nil
+}
+
 func (c *Client) DisableProjectExtension(ctx context.Context, projectID, name string) (Job, error) {
 	var response struct {
 		Job Job `json:"job"`
@@ -1252,26 +1503,34 @@ func (c *Client) GetPreviewSchema(ctx context.Context, previewID string) (Databa
 	return response.Schema, nil
 }
 
-// GenerateProjectSchemaTypes generates source code (typescript, zod or
-// drizzle) from the project database's live schema. style applies to
-// typescript output only.
-func (c *Client) GenerateProjectSchemaTypes(ctx context.Context, projectID, language, style string) (GeneratedTypes, error) {
-	return c.generateSchemaTypes(ctx, "/v1/projects/"+projectID+"/schema/types", language, style)
+// TypegenRequest selects a generator: Language is typescript, zod, drizzle,
+// go or python; Style is capydb|supabase (typescript) or dataclass|pydantic
+// (python); Package is the Go package name. Empty fields take the server's
+// defaults.
+type TypegenRequest struct {
+	Language string
+	Package  string
+	Style    string
+}
+
+// GenerateProjectSchemaTypes renders the project database's live schema as
+// source code, server-side.
+func (c *Client) GenerateProjectSchemaTypes(ctx context.Context, projectID string, request TypegenRequest) (GeneratedTypes, error) {
+	return c.generateSchemaTypes(ctx, "/v1/projects/"+url.PathEscape(projectID)+"/schema/types", request)
 }
 
 // GeneratePreviewSchemaTypes is GenerateProjectSchemaTypes against a preview
 // database.
-func (c *Client) GeneratePreviewSchemaTypes(ctx context.Context, previewID, language, style string) (GeneratedTypes, error) {
-	return c.generateSchemaTypes(ctx, "/v1/preview-databases/"+previewID+"/schema/types", language, style)
+func (c *Client) GeneratePreviewSchemaTypes(ctx context.Context, previewID string, request TypegenRequest) (GeneratedTypes, error) {
+	return c.generateSchemaTypes(ctx, "/v1/preview-databases/"+url.PathEscape(previewID)+"/schema/types", request)
 }
 
-func (c *Client) generateSchemaTypes(ctx context.Context, basePath, language, style string) (GeneratedTypes, error) {
+func (c *Client) generateSchemaTypes(ctx context.Context, basePath string, request TypegenRequest) (GeneratedTypes, error) {
 	query := url.Values{}
-	if strings.TrimSpace(language) != "" {
-		query.Set("language", strings.TrimSpace(language))
-	}
-	if strings.TrimSpace(style) != "" {
-		query.Set("style", strings.TrimSpace(style))
+	for key, value := range map[string]string{"language": request.Language, "package": request.Package, "style": request.Style} {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			query.Set(key, trimmed)
+		}
 	}
 	path := basePath
 	if len(query) > 0 {

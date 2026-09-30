@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -123,42 +126,93 @@ func (a *app) newProjectsCommand() *cobra.Command {
 	command.AddCommand(setEnvironmentCommand)
 	command.AddCommand(alwaysOnCommand)
 	command.AddCommand(a.newProjectsDeleteCommand())
+	command.AddCommand(a.newProjectsRetryCommand())
 	return command
 }
 
-func (a *app) newRegionsCommand() *cobra.Command {
-	command := &cobra.Command{
-		Use:     "regions",
-		Aliases: []string{"region"},
-		Short:   "Inspect available placement regions",
-	}
+// newProjectsRetryCommand re-runs provisioning for a project whose
+// provisioning failed. Like delete, the project is named explicitly.
+func (a *app) newProjectsRetryCommand() *cobra.Command {
+	var wait bool
+	var waitTimeout time.Duration
 
-	listCommand := &cobra.Command{
-		Use:   "list",
-		Short: "List regions available to the active organization",
-		Args:  cobra.NoArgs,
+	command := &cobra.Command{
+		Use:   "retry <project>",
+		Short: "Retry a project whose provisioning failed",
+		Long: `Re-runs provisioning for a project whose provisioning failed: the same database, with the same
+credentials, is created again, so env files and integrations keep working. Safe to repeat - while
+a provisioning job is queued or running, that job is returned instead of a new one.
+
+Only a project that failed while being provisioned can be retried; a project that failed in a
+later operation already has its database and is refused. Needs an organization admin or an
+organization-wide API key.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
 			if err != nil {
 				return err
 			}
-
-			regions, err := client.ListRegions(ctx)
+			project, err := a.resolveProject(ctx, client, strings.TrimSpace(args[0]))
 			if err != nil {
-				return fmt.Errorf("list regions: %w", err)
+				return err
 			}
-			if a.jsonOutput() {
-				return printJSON(cmd.OutOrStdout(), map[string]any{"regions": jsonList(regions)})
+			job, err := client.RetryProjectProvisioning(ctx, project.ID)
+			if err != nil {
+				if apiErr, ok := errors.AsType[*api.APIError](err); ok && apiErr.StatusCode == http.StatusConflict {
+					return fmt.Errorf("project %s cannot be retried: only a project whose provisioning failed can be (state %s): %w", project.Name, firstNonEmpty(project.State, "-"), err)
+				}
+				return fmt.Errorf("retry provisioning: %w", err)
 			}
-			if len(regions) == 0 {
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No regions available for this api key")
-				return nil
+			if !a.jsonOutput() {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Queued provisioning job %s for project %s\n", job.ID, project.Name)
 			}
-
-			writeRegionTable(cmd.OutOrStdout(), regions)
-			return nil
+			return a.maybeWaitForJob(cmd, client, job, wait, waitTimeout, "provisioning")
 		},
+	}
+	addWaitFlags(command, &wait, &waitTimeout, "provisioning")
+	return command
+}
+
+func (a *app) newRegionsCommand() *cobra.Command {
+	listRegions := func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
+		if err != nil {
+			return err
+		}
+
+		regions, err := client.ListRegions(ctx)
+		if err != nil {
+			return fmt.Errorf("list regions: %w", err)
+		}
+		if a.jsonOutput() {
+			return printJSON(cmd.OutOrStdout(), map[string]any{"regions": regions})
+		}
+		if len(regions) == 0 {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No regions available for this api key")
+			return nil
+		}
+
+		writeRegionTable(cmd.OutOrStdout(), regions)
+		return nil
+	}
+
+	command := &cobra.Command{
+		Use:     "regions",
+		Aliases: []string{"region"},
+		Short:   "List the regions new projects can be placed in",
+		Long: "Lists the regions open for new projects: the region id (the value --region takes, " +
+			"e.g. eu-north-1), its display name, and where its nodes run.",
+		Args: cobra.NoArgs,
+		RunE: listRegions,
+	}
+
+	listCommand := &cobra.Command{
+		Use:   "list",
+		Short: "List the regions new projects can be placed in",
+		Args:  cobra.NoArgs,
+		RunE:  listRegions,
 	}
 
 	command.AddCommand(listCommand)
@@ -183,11 +237,11 @@ func writeProjectTable(out io.Writer, projects []api.Project) {
 	_ = writer.Flush()
 }
 
-func writeRegionTable(out io.Writer, regions []string) {
+func writeRegionTable(out io.Writer, regions []api.RegionDetail) {
 	writer := tabwriter.NewWriter(out, 0, 8, 2, ' ', 0)
-	_, _ = fmt.Fprintln(writer, "REGION")
+	_, _ = fmt.Fprintln(writer, "REGION\tNAME\tLOCATION")
 	for _, region := range regions {
-		_, _ = fmt.Fprintf(writer, "%s\n", region)
+		_, _ = fmt.Fprintf(writer, "%s\t%s\t%s\n", region.ID, firstNonEmpty(region.DisplayName, "-"), firstNonEmpty(region.Location, "-"))
 	}
 	_ = writer.Flush()
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"os"
 	"os/signal"
@@ -130,6 +131,7 @@ Exit codes:
 	root.AddCommand(application.newCloudflareCommand())
 	root.AddCommand(application.newConnectionStringCommand())
 	root.AddCommand(application.newCredentialsCommand())
+	root.AddCommand(application.newRolesCommand())
 	root.AddCommand(application.newKVCommand())
 	root.AddCommand(application.newPsqlCommand())
 	root.AddCommand(application.newSQLCommand())
@@ -139,8 +141,10 @@ Exit codes:
 	root.AddCommand(application.newLogsCommand())
 	root.AddCommand(application.newProjectsCommand())
 	root.AddCommand(application.newRegionsCommand())
+	root.AddCommand(application.newPostgresVersionsCommand())
 	root.AddCommand(application.newOrgsCommand())
 	root.AddCommand(application.newWebhooksCommand())
+	root.AddCommand(application.newNotificationsCommand())
 	root.AddCommand(application.newAPIKeysCommand())
 	root.AddCommand(application.newAuditCommand())
 	root.AddCommand(application.newExtensionsCommand())
@@ -550,15 +554,16 @@ func (a *app) newCreateCommand() *cobra.Command {
 					ProjectSlug:   createdProject.Slug,
 				}
 
-				if err := a.writeProjectEnv(cmd, client, createdProject.ID, linkConfig, envFileOverride, true, overwriteEnv); err != nil {
+				provisioned, err := a.writeProjectEnv(cmd, client, createdProject.ID, linkConfig, envFileOverride, true, overwriteEnv)
+				if err != nil {
 					return err
 				}
 
 				if a.jsonOutput() {
-					return a.printCreateJSONSummary(cmd, detection, createdProject, job)
+					return a.printCreateJSONSummary(cmd, detection, provisioned, job)
 				}
 				printLinkSummary(cmd, detection, linkConfig)
-				printCreateNotes(cmd, createdProject)
+				printCreateNotes(cmd, provisioned)
 				return nil
 			}()
 			if err != nil && a.jsonOutput() {
@@ -578,10 +583,10 @@ func (a *app) newCreateCommand() *cobra.Command {
 	command.Flags().BoolVar(&nonInteractive, "yes", false, "Let the server pick a region when none is specified")
 	_ = command.Flags().MarkHidden("yes")
 	command.Flags().StringVar(&projectName, "name", "", "Project name")
-	command.Flags().StringVar(&region, "region", "", "Region for project placement (server picks one when omitted)")
+	command.Flags().StringVar(&region, "region", "", "Region id for project placement, e.g. eu-north-1 (see `capydb regions`; server picks one when omitted)")
 	command.Flags().StringVar(&slug, "slug", "", "Project slug override")
 	command.Flags().StringVar(&environment, "environment", "", "Environment label: production (default) or non_production (unlocks overwrite-restore)")
-	command.Flags().StringVar(&postgresVersion, "postgres-version", "", "Postgres major version: 16, 17, or 18 (the --source-url major, else the server default, when omitted)")
+	command.Flags().StringVar(&postgresVersion, "postgres-version", "", postgresVersionFlagHelp+" (the --source-url major, else the server default, when omitted)")
 	command.Flags().StringVar(&sourceURL, "source-url", "", "Database you will import from: the project gets its Postgres major (read-only version query)")
 	command.Flags().DurationVar(&waitTimeout, "wait-timeout", defaultWaitTimeout, "Maximum time to wait for the provision job")
 	return command
@@ -629,7 +634,7 @@ func (a *app) newLinkCommand() *cobra.Command {
 				ProjectSlug:   resolvedProject.Slug,
 			}
 
-			if err := a.writeProjectEnv(cmd, client, resolvedProject.ID, linkConfig, envFileOverride, true, overwriteEnv); err != nil {
+			if _, err := a.writeProjectEnv(cmd, client, resolvedProject.ID, linkConfig, envFileOverride, true, overwriteEnv); err != nil {
 				return err
 			}
 			if err := a.persistResolvedAuth(authConfig); err != nil {
@@ -696,7 +701,7 @@ func (a *app) newEnvCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := a.writeProjectEnv(cmd, client, linkConfig.ProjectID, linkConfig, envFileOverride, false, false); err != nil {
+			if _, err := a.writeProjectEnv(cmd, client, linkConfig.ProjectID, linkConfig, envFileOverride, false, false); err != nil {
 				return err
 			}
 			if err := a.persistResolvedAuth(authConfig); err != nil {
@@ -840,15 +845,17 @@ func (a *app) saveAuthAndPrint(cmd *cobra.Command, authConfig resolvedAuth) erro
 	return nil
 }
 
-func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID string, linkConfig config.ProjectConfig, envFileOverride string, confirmOverwrite, forceOverwrite bool) error {
+// It returns the project as fetched, after provisioning, so callers can report
+// what the database runs (its Postgres major and channel).
+func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID string, linkConfig config.ProjectConfig, envFileOverride string, confirmOverwrite, forceOverwrite bool) (api.Project, error) {
 	ctx := cmd.Context()
 	projectDetails, _, err := client.GetProject(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("fetch project: %w", err)
+		return api.Project{}, fmt.Errorf("fetch project: %w", err)
 	}
 	connections, err := client.GetProjectConnection(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("fetch project connections: %w", err)
+		return api.Project{}, fmt.Errorf("fetch project connections: %w", err)
 	}
 
 	envPath := linkConfig.EnvFile
@@ -859,6 +866,10 @@ func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID 
 	detection := projectDetectionFromConfig(linkConfig)
 	plan := project.BuildEnvPlan(detection, connections.DirectURL, connections.PooledURL)
 	envAbsPath := envTargetPath(a.cwd, linkConfig.AppPath, envPath)
+
+	// The runtime login's URLs, when the project enabled the split role
+	// model. A project without it gets no DATABASE_APP_* lines.
+	maps.Copy(plan.Vars, appRoleEnvVars(connections, plan.Vars[plan.DatabaseURLVar]))
 
 	// Refresh the K/V endpoint when the project has a store. Only the REST URL:
 	// the token, and the RESP URL that carries it as its password, are not
@@ -871,7 +882,7 @@ func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID 
 			plan.Vars[kvRestURLVar] = restURL
 		}
 	} else if !capydbclient.IsNotFound(err) {
-		return fmt.Errorf("fetch kv store: %w", err)
+		return api.Project{}, fmt.Errorf("fetch kv store: %w", err)
 	}
 
 	// forceOverwrite (--overwrite-env) skips the interactive conflict prompt:
@@ -889,7 +900,7 @@ func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID 
 		resolver = refreshResolver(a.envOverwriteResolver(cmd))
 	}
 	if err := envfile.UpsertWithResolver(envAbsPath, plan.Vars, resolver); err != nil {
-		return err
+		return api.Project{}, err
 	}
 
 	linkConfig.Region = firstNonEmpty(linkConfig.Region, projectDetails.Region)
@@ -903,7 +914,7 @@ func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID 
 	linkConfig.ProjectSlug = projectDetails.Slug
 
 	if err := config.SaveProjectConfig(a.cwd, linkConfig); err != nil {
-		return err
+		return api.Project{}, err
 	}
 
 	// Ensure both the local link directory and the credential-bearing env file
@@ -911,11 +922,11 @@ func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID 
 	// password, so it must never be committed.
 	envIgnore := envIgnoreEntry(linkConfig.AppPath, envPath)
 	if err := gitignore.EnsureLocalConfigIgnored(a.cwd, envIgnore); err != nil {
-		return err
+		return api.Project{}, err
 	}
 
 	warnEnvShadowing(cmd, a.cwd, envPath)
-	return nil
+	return projectDetails, nil
 }
 
 // warnEnvShadowing reports env keys that now point at two different databases.
@@ -1166,6 +1177,11 @@ func (a *app) printCreateJSONSummary(cmd *cobra.Command, detection project.Detec
 		ProjectID   string   `json:"project_id"`
 		ProjectName string   `json:"project_name"`
 		ProjectSlug string   `json:"project_slug,omitempty"`
+		// The database's major, its release channel, and - for a beta major
+		// only - what CapyDB does not guarantee for it.
+		PostgresVersion string `json:"postgres_version,omitempty"`
+		PostgresChannel string `json:"postgres_channel,omitempty"`
+		PostgresWarning string `json:"postgres_warning,omitempty"`
 	}{
 		Region:      linkConfig.Region,
 		EnvFile:     firstNonEmpty(filepath.Join(detection.AppPath, linkConfig.EnvFile), linkConfig.EnvFile),
@@ -1176,6 +1192,10 @@ func (a *app) printCreateJSONSummary(cmd *cobra.Command, detection project.Detec
 		ProjectID:   createdProject.ID,
 		ProjectName: createdProject.Name,
 		ProjectSlug: createdProject.Slug,
+
+		PostgresVersion: createdProject.PostgresVersion,
+		PostgresChannel: createdProject.PostgresChannel,
+		PostgresWarning: createdProject.PostgresWarning,
 	})
 }
 
@@ -1220,6 +1240,12 @@ func printLinkSummary(cmd *cobra.Command, detection project.Detection, linkConfi
 // cheap decisions on an empty cell and awkward ones once it carries traffic.
 func printCreateNotes(cmd *cobra.Command, createdProject api.Project) {
 	out := cmd.OutOrStdout()
+	if createdProject.PostgresVersion != "" {
+		_, _ = fmt.Fprintf(out, "- Postgres %s.\n", postgresLabel(createdProject.PostgresVersion, createdProject.PostgresChannel))
+	}
+	if warning := strings.TrimSpace(createdProject.PostgresWarning); warning != "" {
+		_, _ = fmt.Fprintf(out, "- Warning: %s\n", warning)
+	}
 	if createdProject.AlwaysOn {
 		_, _ = fmt.Fprintln(out, "- Stays awake: this project will not pause when idle (the default for production).")
 	} else {
@@ -1315,17 +1341,17 @@ func stdinIsInteractive() bool {
 // ref is validated against the available regions; when no ref is given the
 // server is allowed to pick (empty string) unless an interactive choice is
 // possible and wanted.
-func selectRegion(regions []string, ref string, nonInteractive bool) (string, error) {
+func selectRegion(regions []api.RegionDetail, ref string, nonInteractive bool) (string, error) {
 	if trimmed := strings.TrimSpace(ref); trimmed != "" {
-		if len(regions) == 0 {
-			return trimmed, nil
-		}
 		for _, region := range regions {
-			if strings.EqualFold(region, trimmed) {
-				return region, nil
+			if strings.EqualFold(region.ID, trimmed) {
+				return region.ID, nil
 			}
 		}
-		return "", fmt.Errorf("region %q not available", trimmed)
+		// Not a listed id: sent as given. The control plane still accepts the
+		// deprecated region names (hel1 for eu-north-1) and rejects anything
+		// else with the list of valid ids, so it stays the one authority.
+		return trimmed, nil
 	}
 
 	// No region requested: let the server choose when we cannot or should not
@@ -1334,12 +1360,12 @@ func selectRegion(regions []string, ref string, nonInteractive bool) (string, er
 		return "", nil
 	}
 	if len(regions) == 1 {
-		return regions[0], nil
+		return regions[0].ID, nil
 	}
 
 	fmt.Println("Select a region:")
 	for index, region := range regions {
-		fmt.Printf("  %d. %s\n", index+1, region)
+		fmt.Printf("  %d. %s\n", index+1, regionLabel(region))
 	}
 
 	value, err := promptLine("Region number (leave blank to let the server choose)")
@@ -1354,7 +1380,22 @@ func selectRegion(regions []string, ref string, nonInteractive bool) (string, er
 		return "", fmt.Errorf("invalid region selection")
 	}
 
-	return regions[selection-1], nil
+	return regions[selection-1].ID, nil
+}
+
+// regionLabel renders a region for a prompt: its id (what --region takes)
+// followed by its display name and location when the control plane has them.
+func regionLabel(region api.RegionDetail) string {
+	details := []string{}
+	for _, value := range []string{region.DisplayName, region.Location} {
+		if trimmed := strings.TrimSpace(value); trimmed != "" && trimmed != region.ID {
+			details = append(details, trimmed)
+		}
+	}
+	if len(details) == 0 {
+		return region.ID
+	}
+	return region.ID + " (" + strings.Join(details, ", ") + ")"
 }
 
 func selectAppCandidate(candidates []project.Detection) (project.Detection, error) {

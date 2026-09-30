@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -60,7 +63,7 @@ type wranglerPayload struct {
 func (a *app) newIntegrationsCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:   "integrations",
-		Short: "Print integration payloads for a linked CapyDB project",
+		Short: "Print integration payloads and re-push env vars to connected platforms",
 	}
 
 	var branch string
@@ -113,6 +116,64 @@ func (a *app) newIntegrationsCommand() *cobra.Command {
 	envCommand.Flags().StringVar(&netlifyContext, "netlify-context", "all", "Netlify context: all, dev, branch-deploy, deploy-preview, production, or branch")
 
 	command.AddCommand(envCommand)
+	command.AddCommand(a.newIntegrationsSyncCommand())
+	return command
+}
+
+// integrationSyncProviders are the platforms the control plane pushes env
+// vars to.
+var integrationSyncProviders = []string{"vercel", "netlify", "cloudflare"}
+
+func (a *app) newIntegrationsSyncCommand() *cobra.Command {
+	var projectRef string
+	var wait bool
+	var waitTimeout time.Duration
+	command := &cobra.Command{
+		Use:   "sync <vercel|netlify|cloudflare>",
+		Short: "Re-push the connection env vars to a connected platform now",
+		Long: `Pushes the project's current connection env vars (the same set connecting pushed) to a connected
+Vercel project, Netlify site or Cloudflare integration again, with the token CapyDB stored when
+it was connected - nothing needs re-entering. Use it after a variable was edited or deleted on the
+platform, or after a failed push. Pushes also happen on their own after credential rotations and
+restores.
+
+This needs the integration to be connected already: connect with ` + "`capydb env sync vercel|netlify`" + `
+or ` + "`capydb cloudflare create-database`" + `.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			provider := strings.ToLower(strings.TrimSpace(args[0]))
+			if !slices.Contains(integrationSyncProviders, provider) {
+				return usageErrorf("provider must be one of %s", strings.Join(integrationSyncProviders, ", "))
+			}
+			client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
+			if err != nil {
+				return err
+			}
+			project, err := a.resolveProject(ctx, client, projectRef)
+			if err != nil {
+				return err
+			}
+			job, err := client.SyncProjectIntegrationEnv(ctx, project.ID, provider)
+			if err != nil {
+				if apiErr, ok := errors.AsType[*api.APIError](err); ok {
+					switch apiErr.StatusCode {
+					case http.StatusNotFound:
+						return notFoundErrorf("project %s has no %s integration to sync (%v); connect it first", project.Name, provider, err)
+					case http.StatusConflict:
+						return fmt.Errorf("a %s env push for project %s is already queued or running; wait for it (see `capydb jobs list`): %w", provider, project.Name, err)
+					}
+				}
+				return fmt.Errorf("sync %s env: %w", provider, err)
+			}
+			if !a.jsonOutput() {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Queued %s env push for project %s\n", provider, project.Name)
+			}
+			return a.maybeWaitForJob(cmd, client, job, wait, waitTimeout, provider+" env push")
+		},
+	}
+	command.Flags().StringVar(&projectRef, "project", "", "Project id, slug, or name")
+	addWaitFlags(command, &wait, &waitTimeout, "env push")
 	return command
 }
 

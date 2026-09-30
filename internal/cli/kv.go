@@ -82,7 +82,7 @@ func (a *app) newKVStatusCommand() *cobra.Command {
 				return printJSON(cmd.OutOrStdout(), map[string]any{"kv_store": store})
 			}
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "id: %s\n", store.ID)
-			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "state: %s\n", store.State)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "state: %s\n", kvStateLabel(store))
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "capacity: %d MB\n", store.MaxMemoryMB)
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "eviction: %s\n", store.MaxMemoryPolicy)
 			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "persistence: %s\n", store.Persistence)
@@ -454,4 +454,21 @@ func confirmKVAction(cmd *cobra.Command, project api.Project, flagConfirmed bool
 		return true, nil
 	}
 	return false, nil
+}
+
+// kvStateLabel renders a store's state for text output. A stopped store is
+// not idle sleep - the platform stopped it - so the reason and what brings it
+// back are spelled out.
+func kvStateLabel(store api.KVStore) string {
+	if store.State != "stopped" {
+		return store.State
+	}
+	switch store.StoppedReason {
+	case "org_suspended":
+		return "stopped (the organization is suspended and offline; the store keeps its data and starts again when the suspension lifts)"
+	case "":
+		return "stopped (the store keeps its data)"
+	default:
+		return "stopped (" + store.StoppedReason + "; the store keeps its data)"
+	}
 }

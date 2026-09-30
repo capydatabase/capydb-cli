@@ -15,7 +15,7 @@ var fakeProject = map[string]any{
 	"state":          "ready",
 	"runtime_status": "active",
 	"plan":           "ship",
-	"region":         "hel1",
+	"region":         "eu-north-1",
 }
 
 // newFakeControlPlane serves GET /v1/projects and GET /v1/projects/prj_1 (with
@@ -48,4 +48,15 @@ func newFakeControlPlane(t *testing.T, project map[string]any, routes map[string
 	}))
 	t.Cleanup(server.Close)
 	return server
+}
+
+// regionsFixture is the GET /v1/regions payload: neutral ids plus their
+// display labels.
+func regionsFixture() map[string]any {
+	return map[string]any{
+		"regions": []string{"eu-north-1"},
+		"region_details": []map[string]any{
+			{"id": "eu-north-1", "display_name": "EU North 1", "location": "Helsinki, Finland"},
+		},
+	}
 }

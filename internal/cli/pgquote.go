@@ -12,8 +12,3 @@ func quoteIdent(name string) string {
 func qualifiedName(schema, name string) string {
 	return quoteIdent(schema) + "." + quoteIdent(name)
 }
-
-// quoteLiteral renders a standard-conforming string literal.
-func quoteLiteral(value string) string {
-	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
-}

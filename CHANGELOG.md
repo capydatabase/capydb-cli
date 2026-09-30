@@ -65,6 +65,12 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   `skipped`), and `--exit-code` still fails on warnings. A preview now gets the catalog checks too
   (unindexed foreign keys, duplicate indexes, bloat); only the week-of-statistics checks are
   skipped there.
+- **`capydb generate go` and `capydb generate python` render server-side**, like `types`, `zod`
+  and `drizzle`. The control plane's generators produce byte-for-byte what the CLI rendered
+  locally (verified against the shared golden files) and the file names are unchanged
+  (`models.go`, `models.py`), so the CLI's own copy is removed. `--package` and `--style` are
+  validated by the control plane; an invalid value now fails with its message rather than a local
+  usage error.
 - Text output labels every job type the control plane reports (major-upgrade steps, app-role
   enable and rotate, K/V stop and start, export, extension update, credential expiry, and the
   storage-tuning jobs) instead of falling back to a reworded internal name.

@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -14,31 +15,31 @@ import (
 	"github.com/capydatabase/capydb-cli/internal/api"
 )
 
-var generateFixtureSchema = map[string]any{
-	"database_name":    "demo",
-	"postgres_version": "17",
-	"extensions":       []any{},
-	"schemas": []any{map[string]any{
-		"name":  "public",
-		"enums": []any{},
-		"tables": []any{map[string]any{
-			"name": "users", "kind": "table", "primary_key": []string{"id"},
-			"foreign_keys": []any{}, "unique_constraints": []any{},
-			"columns": []any{
-				map[string]any{"name": "id", "udt_name": "uuid", "data_type": "uuid"},
-				map[string]any{"name": "created_at", "udt_name": "timestamptz", "data_type": "timestamp with time zone", "is_nullable": true},
-			},
-		}},
-	}},
+// typesEndpoint serves GET .../schema/types, recording the query it was asked
+// with, and answers with content that names the requested language.
+func typesEndpoint(t *testing.T, query *url.Values) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		*query = r.URL.Query()
+		language := query.Get("language")
+		if language == "go" && query.Get("package") == "my-db" {
+			w.WriteHeader(http.StatusBadRequest)
+			writeJSON(t, w, map[string]any{"error": `package "my-db" is not a valid Go package name`})
+			return
+		}
+		filename := map[string]string{"go": "capydb_types.go", "python": "capydb_types.py"}[language]
+		writeJSON(t, w, map[string]any{"types": map[string]any{
+			"content": "// generated " + language + " " + query.Get("style") + query.Get("package") + "\n", "filename": filename,
+			"language": language, "style": query.Get("style"),
+		}})
+	}
 }
 
-func TestGenerateGoRendersLocallyFromTheSchemaEndpoint(t *testing.T) {
+func TestGenerateGoAsksTheControlPlane(t *testing.T) {
 	t.Setenv("CI", "true")
 	isolateUserConfig(t)
+	var query url.Values
 	server := newFakeControlPlane(t, nil, map[string]http.HandlerFunc{
-		"GET /v1/projects/prj_1/schema": func(w http.ResponseWriter, r *http.Request) {
-			writeJSON(t, w, map[string]any{"schema": generateFixtureSchema})
-		},
+		"GET /v1/projects/prj_1/schema/types": typesEndpoint(t, &query),
 	})
 
 	dir := t.TempDir()
@@ -47,45 +48,57 @@ func TestGenerateGoRendersLocallyFromTheSchemaEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("generate go: %v\n%s", err, output)
 	}
-	content, err := os.ReadFile(out)
-	if err != nil {
-		t.Fatal(err)
+	if query.Get("language") != "go" || query.Get("package") != "models" || query.Get("style") != "" {
+		t.Fatalf("query = %v", query)
 	}
-	for _, want := range []string{"package models", "type UsersRow struct", "CreatedAt *time.Time"} {
-		if !strings.Contains(string(content), want) {
-			t.Errorf("missing %q in\n%s", want, content)
-		}
+	content, err := os.ReadFile(out)
+	if err != nil || string(content) != "// generated go models\n" {
+		t.Fatalf("file = %q (%v)", content, err)
 	}
 }
 
-func TestGeneratePythonPrintsPydantic(t *testing.T) {
+func TestGeneratePythonSendsTheStyle(t *testing.T) {
 	t.Setenv("CI", "true")
 	isolateUserConfig(t)
+	var query url.Values
 	server := newFakeControlPlane(t, nil, map[string]http.HandlerFunc{
-		"GET /v1/projects/prj_1/schema": func(w http.ResponseWriter, r *http.Request) {
-			writeJSON(t, w, map[string]any{"schema": generateFixtureSchema})
-		},
+		"GET /v1/preview-databases/pdb_1/schema/types": typesEndpoint(t, &query),
 	})
-	output, err := runCommand(t, t.TempDir(), "generate", "python", "--api-url", server.URL, "--api-key", "capy_test", "--project", "prj_1", "--style", "pydantic", "--print")
+	output, err := runCommand(t, t.TempDir(), "generate", "python", "--api-url", server.URL, "--api-key", "capy_test", "--preview", "pdb_1", "--style", "pydantic", "--print")
 	if err != nil {
 		t.Fatalf("generate python: %v\n%s", err, output)
 	}
-	if !strings.Contains(output, "class UsersRow(BaseModel):") || !strings.Contains(output, "created_at: datetime.datetime | None") {
-		t.Fatalf("unexpected output:\n%s", output)
+	if query.Get("language") != "python" || query.Get("style") != "pydantic" || query.Get("package") != "" {
+		t.Fatalf("query = %v", query)
+	}
+	if output != "// generated python pydantic\n" {
+		t.Fatalf("unexpected output: %q", output)
+	}
+
+	// The default style is dataclass.
+	if _, err := runCommand(t, t.TempDir(), "generate", "python", "--api-url", server.URL, "--api-key", "capy_test", "--preview", "pdb_1", "--print"); err != nil || query.Get("style") != "dataclass" {
+		t.Fatalf("default style = %q (%v)", query.Get("style"), err)
 	}
 }
 
-func TestGenerateRejectsInvalidFlags(t *testing.T) {
+func TestGenerateSurfacesServerValidation(t *testing.T) {
 	t.Setenv("CI", "true")
 	isolateUserConfig(t)
-	for _, args := range [][]string{
-		{"generate", "go", "--package", "my-db"},
-		{"generate", "python", "--style", "attrs"},
-		{"generate", "types", "--watch", "--print"},
-	} {
-		if _, err := runCommand(t, t.TempDir(), append(args, "--api-key", "capy_test", "--api-url", "http://127.0.0.1:1")...); err == nil {
-			t.Errorf("%v: expected a usage error", args)
-		}
+	var query url.Values
+	server := newFakeControlPlane(t, nil, map[string]http.HandlerFunc{
+		"GET /v1/projects/prj_1/schema/types": typesEndpoint(t, &query),
+	})
+	_, err := runCommand(t, t.TempDir(), "generate", "go", "--package", "my-db", "--print", "--project", "prj_1", "--api-url", server.URL, "--api-key", "capy_test")
+	if err == nil || !strings.Contains(err.Error(), "not a valid Go package name") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+func TestGenerateRejectsWatchWithPrint(t *testing.T) {
+	t.Setenv("CI", "true")
+	isolateUserConfig(t)
+	if _, err := runCommand(t, t.TempDir(), "generate", "types", "--watch", "--print", "--api-key", "capy_test", "--api-url", "http://127.0.0.1:1"); err == nil {
+		t.Error("expected a usage error for --watch with --print")
 	}
 }
 

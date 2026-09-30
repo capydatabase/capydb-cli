@@ -1399,26 +1399,34 @@ func (c *Client) GetPreviewSchema(ctx context.Context, previewID string) (Databa
 	return response.Schema, nil
 }
 
-// GenerateProjectSchemaTypes generates source code (typescript, zod or
-// drizzle) from the project database's live schema. style applies to
-// typescript output only.
-func (c *Client) GenerateProjectSchemaTypes(ctx context.Context, projectID, language, style string) (GeneratedTypes, error) {
-	return c.generateSchemaTypes(ctx, "/v1/projects/"+projectID+"/schema/types", language, style)
+// TypegenRequest selects a generator: Language is typescript, zod, drizzle,
+// go or python; Style is capydb|supabase (typescript) or dataclass|pydantic
+// (python); Package is the Go package name. Empty fields take the server's
+// defaults.
+type TypegenRequest struct {
+	Language string
+	Package  string
+	Style    string
+}
+
+// GenerateProjectSchemaTypes renders the project database's live schema as
+// source code, server-side.
+func (c *Client) GenerateProjectSchemaTypes(ctx context.Context, projectID string, request TypegenRequest) (GeneratedTypes, error) {
+	return c.generateSchemaTypes(ctx, "/v1/projects/"+url.PathEscape(projectID)+"/schema/types", request)
 }
 
 // GeneratePreviewSchemaTypes is GenerateProjectSchemaTypes against a preview
 // database.
-func (c *Client) GeneratePreviewSchemaTypes(ctx context.Context, previewID, language, style string) (GeneratedTypes, error) {
-	return c.generateSchemaTypes(ctx, "/v1/preview-databases/"+previewID+"/schema/types", language, style)
+func (c *Client) GeneratePreviewSchemaTypes(ctx context.Context, previewID string, request TypegenRequest) (GeneratedTypes, error) {
+	return c.generateSchemaTypes(ctx, "/v1/preview-databases/"+url.PathEscape(previewID)+"/schema/types", request)
 }
 
-func (c *Client) generateSchemaTypes(ctx context.Context, basePath, language, style string) (GeneratedTypes, error) {
+func (c *Client) generateSchemaTypes(ctx context.Context, basePath string, request TypegenRequest) (GeneratedTypes, error) {
 	query := url.Values{}
-	if strings.TrimSpace(language) != "" {
-		query.Set("language", strings.TrimSpace(language))
-	}
-	if strings.TrimSpace(style) != "" {
-		query.Set("style", strings.TrimSpace(style))
+	for key, value := range map[string]string{"language": request.Language, "package": request.Package, "style": request.Style} {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			query.Set(key, trimmed)
+		}
 	}
 	path := basePath
 	if len(query) > 0 {

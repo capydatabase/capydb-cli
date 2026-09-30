@@ -46,6 +46,8 @@ type (
 	CreateImportRequest                = capydbclient.CreateImportRequest
 	CreateRestorePointRequest          = capydbclient.CreateRestorePointRequest
 	CreateRestoreRequest               = capydbclient.CreateRestoreRequest
+	CreateRestoreResponse              = capydbclient.CreateRestoreResponse
+	PITRRestoreTarget                  = capydbclient.PITRRestoreTarget
 	EphemeralDatabase                  = capydbclient.EphemeralDatabase
 	EphemeralDatabaseClaimRequest      = capydbclient.EphemeralDatabaseClaimRequest
 	EphemeralDatabaseCreateRequest     = capydbclient.EphemeralDatabaseCreateRequest
@@ -508,14 +510,15 @@ func (c *Client) CreatePreviewDatabase(ctx context.Context, projectID string, re
 	return response.Preview, response.Job, nil
 }
 
-func (c *Client) CreateRestore(ctx context.Context, projectID string, request CreateRestoreRequest) (Job, error) {
-	var response struct {
-		Job Job `json:"job"`
-	}
+// CreateRestore enqueues a restore. For a point-in-time source the response
+// also reports the time the restore runs to, which is earlier than the
+// request when the request was past the latest restorable point.
+func (c *Client) CreateRestore(ctx context.Context, projectID string, request CreateRestoreRequest) (CreateRestoreResponse, error) {
+	var response CreateRestoreResponse
 	if err := c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/restores", request, &response); err != nil {
-		return Job{}, err
+		return CreateRestoreResponse{}, err
 	}
-	return response.Job, nil
+	return response, nil
 }
 
 // DeleteProject queues deletion of a project's database, previews, and

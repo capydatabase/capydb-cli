@@ -29,6 +29,11 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   upgrade in flight and `rollback_available_until`. A 403 says that self-serve upgrades must be
   enabled for the organization; they are off until CapyDB turns them on.
 
+- **`capydb restore --restore-time` says when the time was clamped.** A point-in-time target later
+  than the latest restorable point is now moved back to that point instead of refused; the command
+  prints the requested and effective times (on stderr with `-o json`, where stdout stays the job),
+  and the `--wait` summary names the effective time.
+
 ### Changed
 
 - capydbclient v1.13.0 -> v1.14.0.

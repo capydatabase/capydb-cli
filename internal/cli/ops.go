@@ -1288,12 +1288,23 @@ func (a *app) newRestoreCommand() *cobra.Command {
 				request.ApprovalToken = token
 			}
 
-			job, err := client.CreateRestore(ctx, project.ID, request)
+			restore, err := client.CreateRestore(ctx, project.ID, request)
 			if err != nil {
 				return fmt.Errorf("create restore: %w", err)
 			}
+			job := restore.Job
 			if !a.jsonOutput() {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Queued restore job %s for project %s\n", job.ID, project.Name)
+			}
+			// A clamp changes what the restore delivers, so it is said up front.
+			// In JSON mode stdout stays the job document and the notice goes to
+			// stderr; the completed job's result carries the same times.
+			if notice := restoreClampNotice(restore.PITR); notice != "" {
+				noticeOut := cmd.OutOrStdout()
+				if a.jsonOutput() {
+					noticeOut = cmd.ErrOrStderr()
+				}
+				_, _ = fmt.Fprint(noticeOut, notice)
 			}
 			// A nil error with --wait set means ensureCompletedJob passed
 			// (freshly queued jobs are always pending, so the wait ran).
@@ -1301,7 +1312,11 @@ func (a *app) newRestoreCommand() *cobra.Command {
 				return err
 			}
 			if wait && job.ID != "" && !a.jsonOutput() {
-				source := restoreSourceDescription(trimmedBackupKey, trimmedRestoreTime, trimmedRestorePoint)
+				restoredTime := trimmedRestoreTime
+				if restore.PITR != nil && restore.PITR.RestoreTimeClamped {
+					restoredTime = restore.PITR.RestoreTime.UTC().Format(time.RFC3339)
+				}
+				source := restoreSourceDescription(trimmedBackupKey, restoredTime, trimmedRestorePoint)
 				_, _ = fmt.Fprint(cmd.OutOrStdout(), restoreOutcome(project.Name, resolvedKind, source, firstNonEmpty(job.PreviewDatabaseID, request.PreviewID)))
 			}
 			return nil
@@ -1364,6 +1379,18 @@ func restoreSourceDescription(backupKey, restoreTime, restorePointID string) str
 	default:
 		return "the requested restore source"
 	}
+}
+
+// restoreClampNotice explains a point-in-time target the control plane moved
+// back to the latest restorable point; empty when nothing was clamped.
+func restoreClampNotice(pitr *api.PITRRestoreTarget) string {
+	if pitr == nil || !pitr.RestoreTimeClamped {
+		return ""
+	}
+	return fmt.Sprintf("Note: %s is past the latest restorable point, so the restore runs to %s instead (%s earlier).\n",
+		pitr.RequestedRestoreTime.UTC().Format(time.RFC3339),
+		pitr.RestoreTime.UTC().Format(time.RFC3339),
+		pitr.RequestedRestoreTime.Sub(pitr.RestoreTime).Round(time.Second))
 }
 
 // restoreOutcome states what is now true after a successful restore, per

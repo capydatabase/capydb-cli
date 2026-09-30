@@ -39,9 +39,24 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   project that failed after its database was provisioned is refused with an explanation. Supports
   `--wait` and `-o json`.
 
+- **`capydb roles app show|enable|rotate`: the split role model's runtime login.** `enable`
+  creates `app_user` on the project's database (it checks first whether the project already has it
+  and whether the platform offers it), `rotate` replaces its password, and `show` reports whether
+  it exists and when it was created or rotated. All take `--project`, `-o json`, and `--wait` for
+  the job.
+- **`capydb env pull` (and `link`/`create`) write `DATABASE_APP_URL` and `DATABASE_APP_POOL_URL`**
+  when the project has its runtime login. `DATABASE_APP_URL` takes the same pooled-or-direct choice
+  `DATABASE_URL` makes for the detected stack; `DATABASE_APP_POOL_URL` is always pooled. A project
+  without the login gets no new lines.
+- `capydb migrate rls --role-model split` (default `--target capydb`) now ends with a note that the
+  bundle needs the project's runtime login and names `capydb roles app show|enable`.
+
 ### Changed
 
 - capydbclient v1.13.0 -> v1.14.0.
+- Text output labels every job type the control plane reports (major-upgrade steps, app-role
+  enable and rotate, K/V stop and start, export, extension update, credential expiry, and the
+  storage-tuning jobs) instead of falling back to a reworded internal name.
 - **`capydb regions` shows each region's display name and location.** Region ids are now neutral
   (`eu-north-1`); the table lists `REGION  NAME  LOCATION`, the bare `capydb regions` lists like
   `capydb regions list`, and `-o json` returns `{"regions": [{"id", "display_name", "location"}]}`

@@ -76,6 +76,8 @@ type (
 	ProjectObservability               = capydbclient.ProjectObservability
 	PostgresVersion                    = capydbclient.PostgresVersion
 	MajorUpgradeStatus                 = capydbclient.MajorUpgradeStatus
+	AppRoleStatus                      = capydbclient.AppRoleStatus
+	AppRoleConnectionInfo              = capydbclient.AppRoleConnectionInfo
 	ProvisionCloudflareDatabaseRequest = capydbclient.ProvisionCloudflareDatabaseRequest
 	ProvisionCloudflareDatabaseResult  = capydbclient.ProvisionCloudflareDatabaseResponse
 	PublicStatusComponent              = capydbclient.StatusComponent
@@ -1215,6 +1217,39 @@ func (c *Client) MajorUpgradePreflight(ctx context.Context, projectID string, ta
 	}
 	path := fmt.Sprintf("/v1/projects/%s/upgrade/major/preflight?target_major=%d", projectID, targetMajor)
 	if err := c.do(ctx, http.MethodPost, path, nil, &response); err != nil {
+		return Job{}, err
+	}
+	return response.Job, nil
+}
+
+// GetAppRole reports whether the project has its split-role runtime login
+// (app_user) and whether it may enable it now.
+func (c *Client) GetAppRole(ctx context.Context, projectID string) (AppRoleStatus, error) {
+	var response struct {
+		AppRole AppRoleStatus `json:"app_role"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(projectID)+"/roles/app", nil, &response); err != nil {
+		return AppRoleStatus{}, err
+	}
+	return response.AppRole, nil
+}
+
+// EnableAppRole queues the job that creates the project's runtime login. The
+// control plane answers 404 while the platform does not offer it.
+func (c *Client) EnableAppRole(ctx context.Context, projectID string) (Job, error) {
+	return c.appRoleJob(ctx, projectID, "")
+}
+
+// RotateAppRole queues the job that replaces the runtime login's password.
+func (c *Client) RotateAppRole(ctx context.Context, projectID string) (Job, error) {
+	return c.appRoleJob(ctx, projectID, "/rotate")
+}
+
+func (c *Client) appRoleJob(ctx context.Context, projectID, suffix string) (Job, error) {
+	var response struct {
+		Job Job `json:"job"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(projectID)+"/roles/app"+suffix, nil, &response); err != nil {
 		return Job{}, err
 	}
 	return response.Job, nil

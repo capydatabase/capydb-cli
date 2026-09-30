@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/url"
 	"os"
 	"os/signal"
@@ -130,6 +131,7 @@ Exit codes:
 	root.AddCommand(application.newCloudflareCommand())
 	root.AddCommand(application.newConnectionStringCommand())
 	root.AddCommand(application.newCredentialsCommand())
+	root.AddCommand(application.newRolesCommand())
 	root.AddCommand(application.newKVCommand())
 	root.AddCommand(application.newPsqlCommand())
 	root.AddCommand(application.newSQLCommand())
@@ -863,6 +865,10 @@ func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID 
 	detection := projectDetectionFromConfig(linkConfig)
 	plan := project.BuildEnvPlan(detection, connections.DirectURL, connections.PooledURL)
 	envAbsPath := envTargetPath(a.cwd, linkConfig.AppPath, envPath)
+
+	// The runtime login's URLs, when the project enabled the split role
+	// model. A project without it gets no DATABASE_APP_* lines.
+	maps.Copy(plan.Vars, appRoleEnvVars(connections, plan.Vars[plan.DatabaseURLVar]))
 
 	// Refresh the K/V endpoint when the project has a store. Only the REST URL:
 	// the token, and the RESP URL that carries it as its password, are not

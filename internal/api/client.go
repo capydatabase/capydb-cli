@@ -75,6 +75,7 @@ type (
 	ProjectLogs                        = capydbclient.ProjectLogs
 	ProjectLogSearch                   = capydbclient.ProjectLogSearch
 	ProjectObservability               = capydbclient.ProjectObservability
+	ProjectWakeLatency                 = capydbclient.ProjectWakeLatency
 	PostgresVersion                    = capydbclient.PostgresVersion
 	MajorUpgradeStatus                 = capydbclient.MajorUpgradeStatus
 	AppRoleStatus                      = capydbclient.AppRoleStatus

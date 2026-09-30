@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"text/tabwriter"
 
@@ -256,7 +257,7 @@ func (a *app) newMetricsCommand() *cobra.Command {
 	command := &cobra.Command{
 		Use:     "metrics",
 		Aliases: []string{"observability"},
-		Short:   "Show storage, connection, and query metrics for a project",
+		Short:   "Show storage, connection, resume, and query metrics for a project",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -347,6 +348,45 @@ func truncateQuery(query string, limit int) string {
 	return flattened
 }
 
+// writeWakeLatency prints how long the database took to resume from a pause
+// over the reporting window. Nothing is printed when the control plane sent
+// no summary.
+func writeWakeLatency(out io.Writer, wake *api.ProjectWakeLatency) {
+	if wake == nil {
+		return
+	}
+	window := "last " + strconv.Itoa(wake.WindowHours) + "h"
+	if wake.WindowHours == 168 {
+		window = "last 7 days"
+	}
+	if wake.Wakes == 0 {
+		_, _ = fmt.Fprintf(out, "resumes (%s): none\n", window)
+		return
+	}
+	if wake.TimedWakes == 0 || wake.P50Ms == nil {
+		_, _ = fmt.Fprintf(out, "resumes (%s): %d, none timed\n", window, wake.Wakes)
+		return
+	}
+	line := fmt.Sprintf("resumes (%s): %d, p50 %s", window, wake.Wakes, formatMilliseconds(*wake.P50Ms))
+	if wake.P95Ms != nil {
+		line += ", p95 " + formatMilliseconds(*wake.P95Ms)
+	}
+	if wake.MaxMs != nil {
+		line += ", max " + formatMilliseconds(float64(*wake.MaxMs))
+	}
+	if wake.TimedWakes < wake.Wakes {
+		line += fmt.Sprintf(" (%d timed)", wake.TimedWakes)
+	}
+	_, _ = fmt.Fprintln(out, line)
+}
+
+func formatMilliseconds(ms float64) string {
+	if ms >= 1000 {
+		return strconv.FormatFloat(ms/1000, 'f', 1, 64) + "s"
+	}
+	return strconv.FormatFloat(ms, 'f', 0, 64) + "ms"
+}
+
 func writeObservabilityReport(out io.Writer, observability api.ProjectObservability) {
 	_, _ = fmt.Fprintf(
 		out,
@@ -362,6 +402,7 @@ func writeObservabilityReport(out io.Writer, observability api.ProjectObservabil
 		observability.ConnectionLimit,
 		formatPercent(observability.ConnectionUsagePercent),
 	)
+	writeWakeLatency(out, observability.Wake)
 
 	if len(observability.Alerts) == 0 {
 		_, _ = fmt.Fprintln(out, "alerts: none")

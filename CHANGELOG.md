@@ -76,6 +76,10 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   (`ERROR   [42P01] relation "x" does not exist`); JSON entries carry `sqlstate`, `pid`, `user`
   and `database`.
 
+- `capydb metrics` prints how long the database took to resume from a pause over the last seven
+  days: `resumes (last 7 days): 5, p50 148ms, p95 1.2s, max 1.8s` (the raw `wake` object is in
+  `-o json`).
+
 ### Changed
 
 - capydbclient v1.13.0 -> v1.14.0.

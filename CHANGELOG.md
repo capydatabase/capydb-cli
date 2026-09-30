@@ -66,6 +66,16 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   `""` clears). `set` changes only the settings passed - it reads the current preferences and sends
   the full replacement the API requires. `-o json` on both.
 
+- **`capydb logs --search/--sqlstate/--since/--until`** search the project's archived database
+  logs (last 30 days, newest first): `--sqlstate` takes five-character codes or two-character
+  classes, `--search` a case-insensitive substring, `--severity` still filters, and `--since` /
+  `--until` take RFC 3339 times or durations back from now (`90m`, `12h`, `7d`). `--cursor`
+  continues a page; `-o json` returns `{"search": {"entries", "next_cursor", "truncated"}}`.
+  Where log search is not enabled the command says so; `--follow` cannot be combined with it.
+- `capydb logs` shows a line's SQLSTATE in brackets when the log line carries one
+  (`ERROR   [42P01] relation "x" does not exist`); JSON entries carry `sqlstate`, `pid`, `user`
+  and `database`.
+
 ### Changed
 
 - capydbclient v1.13.0 -> v1.14.0.

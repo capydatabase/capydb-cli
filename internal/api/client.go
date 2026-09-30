@@ -73,6 +73,7 @@ type (
 	ProjectIntegration                 = capydbclient.ProjectIntegration
 	ProjectLogEntry                    = capydbclient.ProjectLogEntry
 	ProjectLogs                        = capydbclient.ProjectLogs
+	ProjectLogSearch                   = capydbclient.ProjectLogSearch
 	ProjectObservability               = capydbclient.ProjectObservability
 	PostgresVersion                    = capydbclient.PostgresVersion
 	MajorUpgradeStatus                 = capydbclient.MajorUpgradeStatus
@@ -611,6 +612,59 @@ type ProjectLogsQuery struct {
 
 // GetProjectLogs fetches one window (or tail increment) of the project's
 // database logs.
+// ProjectLogSearchQuery filters a log search. SQLStates holds five-character
+// codes or two-character classes; Since and Until bound the window (the
+// server defaults to the 24 hours before now).
+type ProjectLogSearchQuery struct {
+	Cursor     string
+	Limit      int
+	Query      string
+	SQLStates  []string
+	Severities []string
+	Since      time.Time
+	Until      time.Time
+}
+
+// SearchProjectLogs searches the project's archived database logs, newest
+// first. The control plane answers 503 where log search is not enabled.
+func (c *Client) SearchProjectLogs(ctx context.Context, projectID string, query ProjectLogSearchQuery) (ProjectLogSearch, error) {
+	values := url.Values{}
+	if query.Cursor != "" {
+		values.Set("cursor", query.Cursor)
+	}
+	if query.Limit > 0 {
+		values.Set("limit", strconv.Itoa(query.Limit))
+	}
+	if query.Query != "" {
+		values.Set("q", query.Query)
+	}
+	if len(query.SQLStates) > 0 {
+		values.Set("sqlstate", strings.Join(query.SQLStates, ","))
+	}
+	if len(query.Severities) > 0 {
+		values.Set("severity", strings.Join(query.Severities, ","))
+	}
+	if !query.Since.IsZero() {
+		values.Set("since", query.Since.UTC().Format(time.RFC3339))
+	}
+	if !query.Until.IsZero() {
+		values.Set("until", query.Until.UTC().Format(time.RFC3339))
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/logs/search"
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+
+	var response struct {
+		Search ProjectLogSearch `json:"search"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &response); err != nil {
+		return ProjectLogSearch{}, err
+	}
+	response.Search.Entries = capydbclient.NormalizeList(response.Search.Entries)
+	return response.Search, nil
+}
+
 func (c *Client) GetProjectLogs(ctx context.Context, projectID string, query ProjectLogsQuery) (ProjectLogs, error) {
 	values := url.Values{}
 	if query.Cursor != "" {

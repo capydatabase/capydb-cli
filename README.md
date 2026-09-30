@@ -62,7 +62,7 @@ The CLI will:
 - `capydb version [--check]` (build info; `--check` compares against the latest GitHub release with a 5s timeout and degrades to a warning offline)
 - `capydb orgs list` / `capydb orgs switch <org-id|slug>` (the CLI stores credentials per organization; switch the active one)
 - `capydb projects list`
-- `capydb regions list`
+- `capydb regions` (region ids, display names and locations)
 - `capydb link`
 - `capydb unlink`
 - `capydb env pull`

@@ -37,7 +37,7 @@ func createRoutes(t *testing.T, directURL string) map[string]http.HandlerFunc {
 	return map[string]http.HandlerFunc{
 		"GET /v1/me": func(w http.ResponseWriter, r *http.Request) { writeViewer(t, w, "org_1") },
 		"GET /v1/regions": func(w http.ResponseWriter, r *http.Request) {
-			writeJSON(t, w, map[string]any{"regions": []string{"hel1"}})
+			writeJSON(t, w, regionsFixture())
 		},
 		"POST /v1/projects": func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusCreated)
@@ -61,7 +61,7 @@ func TestCreateTemplateAppliesSchemaAndSeedAfterCreate(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "package.json"), `{"name": "demo"}`)
 
-	output, err := runCommand(t, dir, "create", "--template", "drizzle-starter", "--region", "hel1", "--api-url", server.URL, "--api-key", "capy_test")
+	output, err := runCommand(t, dir, "create", "--template", "drizzle-starter", "--region", "eu-north-1", "--api-url", server.URL, "--api-key", "capy_test")
 	if err != nil {
 		t.Fatalf("create --template: %v\n%s", err, output)
 	}
@@ -83,7 +83,7 @@ func TestCreateTemplateFailureLeavesTheSQLForSeed(t *testing.T) {
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "package.json"), `{"name": "demo"}`)
 
-	output, err := runCommand(t, dir, "create", "--template", "auth-starter", "--region", "hel1", "--api-url", server.URL, "--api-key", "capy_test")
+	output, err := runCommand(t, dir, "create", "--template", "auth-starter", "--region", "eu-north-1", "--api-url", server.URL, "--api-key", "capy_test")
 	if err == nil || !strings.Contains(err.Error(), "nothing was applied") {
 		t.Fatalf("err = %v\n%s", err, output)
 	}

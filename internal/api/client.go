@@ -80,6 +80,7 @@ type (
 	SQLResult                          = capydbclient.SQLQueryResult
 	ScheduledBackup                    = capydbclient.ScheduledBackup
 	RedundantIndex                     = capydbclient.RedundantIndex
+	RegionDetail                       = capydbclient.RegionDetail
 	SlowQuery                          = capydbclient.SlowQuerySample
 	UnusedIndex                        = capydbclient.UnusedIndex
 	UpsertScheduledBackupRequest       = capydbclient.UpsertScheduledBackupRequest
@@ -859,14 +860,14 @@ func (c *Client) RotateCredentials(ctx context.Context, projectID string, graceH
 	return response.Job, nil
 }
 
-func (c *Client) ListRegions(ctx context.Context) ([]string, error) {
-	var response struct {
-		Regions []string `json:"regions"`
-	}
+// ListRegions returns the regions open for new projects with their display
+// labels, in the order the control plane lists them.
+func (c *Client) ListRegions(ctx context.Context) ([]RegionDetail, error) {
+	var response capydbclient.RegionsResponse
 	if err := c.do(ctx, http.MethodGet, "/v1/regions", nil, &response); err != nil {
 		return nil, err
 	}
-	return response.Regions, nil
+	return capydbclient.NormalizeList(response.RegionDetails), nil
 }
 
 func (c *Client) ListPreviewDatabases(ctx context.Context, projectID string) ([]PreviewDetails, error) {

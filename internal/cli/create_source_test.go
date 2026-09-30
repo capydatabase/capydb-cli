@@ -66,7 +66,7 @@ func createServer(t *testing.T, body *map[string]any) *httptest.Server {
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/me":
 			writeViewer(t, w, "org_1")
 		case r.Method == http.MethodGet && r.URL.Path == "/v1/regions":
-			writeJSON(t, w, map[string]any{"regions": []string{"hel1"}})
+			writeJSON(t, w, regionsFixture())
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/projects":
 			*body = map[string]any{}
 			if err := json.NewDecoder(r.Body).Decode(body); err != nil {

@@ -234,7 +234,7 @@ func (a *app) newEphemeralCreateCommand() *cobra.Command {
 	command.Flags().BoolVar(&overwriteEnv, "overwrite-env", false, "Overwrite an existing DATABASE_URL (and related vars) in the env file without prompting")
 	command.Flags().BoolVar(&noEnv, "no-env", false, "Do not touch an env file; print the connection strings instead")
 	command.Flags().StringVar(&name, "name", "", "Display name for the database")
-	command.Flags().StringVar(&region, "region", "", "Region slug")
+	command.Flags().StringVar(&region, "region", "", "Region id, e.g. eu-north-1 (see `capydb regions`; server picks one when omitted)")
 	command.Flags().StringVar(&postgresVersion, "postgres-version", "", "Postgres major version: 16, 17, or 18 (default: platform default)")
 	command.Flags().DurationVar(&waitTimeout, "wait-timeout", defaultEphemeralWaitTimeout, "How long to wait for the database to come up")
 	return command

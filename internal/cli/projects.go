@@ -127,38 +127,44 @@ func (a *app) newProjectsCommand() *cobra.Command {
 }
 
 func (a *app) newRegionsCommand() *cobra.Command {
+	listRegions := func(cmd *cobra.Command, args []string) error {
+		ctx := cmd.Context()
+		client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
+		if err != nil {
+			return err
+		}
+
+		regions, err := client.ListRegions(ctx)
+		if err != nil {
+			return fmt.Errorf("list regions: %w", err)
+		}
+		if a.jsonOutput() {
+			return printJSON(cmd.OutOrStdout(), map[string]any{"regions": regions})
+		}
+		if len(regions) == 0 {
+			_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No regions available for this api key")
+			return nil
+		}
+
+		writeRegionTable(cmd.OutOrStdout(), regions)
+		return nil
+	}
+
 	command := &cobra.Command{
 		Use:     "regions",
 		Aliases: []string{"region"},
-		Short:   "Inspect available placement regions",
+		Short:   "List the regions new projects can be placed in",
+		Long: "Lists the regions open for new projects: the region id (the value --region takes, " +
+			"e.g. eu-north-1), its display name, and where its nodes run.",
+		Args: cobra.NoArgs,
+		RunE: listRegions,
 	}
 
 	listCommand := &cobra.Command{
 		Use:   "list",
-		Short: "List regions available to the active organization",
+		Short: "List the regions new projects can be placed in",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			ctx := cmd.Context()
-			client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
-			if err != nil {
-				return err
-			}
-
-			regions, err := client.ListRegions(ctx)
-			if err != nil {
-				return fmt.Errorf("list regions: %w", err)
-			}
-			if a.jsonOutput() {
-				return printJSON(cmd.OutOrStdout(), map[string]any{"regions": jsonList(regions)})
-			}
-			if len(regions) == 0 {
-				_, _ = fmt.Fprintln(cmd.OutOrStdout(), "No regions available for this api key")
-				return nil
-			}
-
-			writeRegionTable(cmd.OutOrStdout(), regions)
-			return nil
-		},
+		RunE:  listRegions,
 	}
 
 	command.AddCommand(listCommand)
@@ -183,11 +189,11 @@ func writeProjectTable(out io.Writer, projects []api.Project) {
 	_ = writer.Flush()
 }
 
-func writeRegionTable(out io.Writer, regions []string) {
+func writeRegionTable(out io.Writer, regions []api.RegionDetail) {
 	writer := tabwriter.NewWriter(out, 0, 8, 2, ' ', 0)
-	_, _ = fmt.Fprintln(writer, "REGION")
+	_, _ = fmt.Fprintln(writer, "REGION\tNAME\tLOCATION")
 	for _, region := range regions {
-		_, _ = fmt.Fprintf(writer, "%s\n", region)
+		_, _ = fmt.Fprintf(writer, "%s\t%s\t%s\n", region.ID, firstNonEmpty(region.DisplayName, "-"), firstNonEmpty(region.Location, "-"))
 	}
 	_ = writer.Flush()
 }

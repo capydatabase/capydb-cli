@@ -10,6 +10,13 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ### Changed
 
+- capydbclient v1.13.0 -> v1.14.0.
+- **`capydb regions` shows each region's display name and location.** Region ids are now neutral
+  (`eu-north-1`); the table lists `REGION  NAME  LOCATION`, the bare `capydb regions` lists like
+  `capydb regions list`, and `-o json` returns `{"regions": [{"id", "display_name", "location"}]}`
+  (it was a list of ids). The `create` region prompt shows the same labels, and a `--region` the
+  list does not contain (such as the deprecated `hel1`) is passed to the control plane, which
+  resolves deprecated names and rejects unknown ones.
 - capyrls v1.15.0 -> v1.16.0.
 - **`capydb migrate rls --role-model split` works on CapyDB.** It was refused for the default
   `--target capydb`. It now builds a bundle for the project's runtime role `app_user`, which the

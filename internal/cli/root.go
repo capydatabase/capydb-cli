@@ -578,7 +578,7 @@ func (a *app) newCreateCommand() *cobra.Command {
 	command.Flags().BoolVar(&nonInteractive, "yes", false, "Let the server pick a region when none is specified")
 	_ = command.Flags().MarkHidden("yes")
 	command.Flags().StringVar(&projectName, "name", "", "Project name")
-	command.Flags().StringVar(&region, "region", "", "Region for project placement (server picks one when omitted)")
+	command.Flags().StringVar(&region, "region", "", "Region id for project placement, e.g. eu-north-1 (see `capydb regions`; server picks one when omitted)")
 	command.Flags().StringVar(&slug, "slug", "", "Project slug override")
 	command.Flags().StringVar(&environment, "environment", "", "Environment label: production (default) or non_production (unlocks overwrite-restore)")
 	command.Flags().StringVar(&postgresVersion, "postgres-version", "", "Postgres major version: 16, 17, or 18 (the --source-url major, else the server default, when omitted)")
@@ -1315,17 +1315,17 @@ func stdinIsInteractive() bool {
 // ref is validated against the available regions; when no ref is given the
 // server is allowed to pick (empty string) unless an interactive choice is
 // possible and wanted.
-func selectRegion(regions []string, ref string, nonInteractive bool) (string, error) {
+func selectRegion(regions []api.RegionDetail, ref string, nonInteractive bool) (string, error) {
 	if trimmed := strings.TrimSpace(ref); trimmed != "" {
-		if len(regions) == 0 {
-			return trimmed, nil
-		}
 		for _, region := range regions {
-			if strings.EqualFold(region, trimmed) {
-				return region, nil
+			if strings.EqualFold(region.ID, trimmed) {
+				return region.ID, nil
 			}
 		}
-		return "", fmt.Errorf("region %q not available", trimmed)
+		// Not a listed id: sent as given. The control plane still accepts the
+		// deprecated region names (hel1 for eu-north-1) and rejects anything
+		// else with the list of valid ids, so it stays the one authority.
+		return trimmed, nil
 	}
 
 	// No region requested: let the server choose when we cannot or should not
@@ -1334,12 +1334,12 @@ func selectRegion(regions []string, ref string, nonInteractive bool) (string, er
 		return "", nil
 	}
 	if len(regions) == 1 {
-		return regions[0], nil
+		return regions[0].ID, nil
 	}
 
 	fmt.Println("Select a region:")
 	for index, region := range regions {
-		fmt.Printf("  %d. %s\n", index+1, region)
+		fmt.Printf("  %d. %s\n", index+1, regionLabel(region))
 	}
 
 	value, err := promptLine("Region number (leave blank to let the server choose)")
@@ -1354,7 +1354,22 @@ func selectRegion(regions []string, ref string, nonInteractive bool) (string, er
 		return "", fmt.Errorf("invalid region selection")
 	}
 
-	return regions[selection-1], nil
+	return regions[selection-1].ID, nil
+}
+
+// regionLabel renders a region for a prompt: its id (what --region takes)
+// followed by its display name and location when the control plane has them.
+func regionLabel(region api.RegionDetail) string {
+	details := []string{}
+	for _, value := range []string{region.DisplayName, region.Location} {
+		if trimmed := strings.TrimSpace(value); trimmed != "" && trimmed != region.ID {
+			details = append(details, trimmed)
+		}
+	}
+	if len(details) == 0 {
+		return region.ID
+	}
+	return region.ID + " (" + strings.Join(details, ", ") + ")"
 }
 
 func selectAppCandidate(candidates []project.Detection) (project.Detection, error) {

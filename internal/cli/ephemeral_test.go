@@ -38,6 +38,7 @@ func ephemeralDatabaseJSON(state string, expiresAt time.Time) map[string]any {
 // must end up in files - the env file and the 0600 state file - not on stdout.
 func TestEphemeralCreateIsAnonymousAndKeepsSecretsInFiles(t *testing.T) {
 	isolateUserConfig(t)
+	t.Setenv("CAPYDB_API_KEY", "")
 	cwd := t.TempDir()
 	expiresAt := time.Now().Add(72 * time.Hour).UTC().Truncate(time.Second)
 
@@ -348,5 +349,46 @@ func TestEphemeralDestroyExplainsAnOlderControlPlane(t *testing.T) {
 	}
 	if _, statErr := os.Stat(config.EphemeralStatePath(cwd)); statErr != nil {
 		t.Fatalf("ephemeral record must survive a failed destroy (stat err: %v)", statErr)
+	}
+}
+
+// With a key configured, the create carries it (the per-account cap) while the
+// claim-token reads stay free of it.
+func TestEphemeralCreateSendsAConfiguredAPIKey(t *testing.T) {
+	isolateUserConfig(t)
+	t.Setenv("CAPYDB_API_KEY", "capy_live_test")
+	cwd := t.TempDir()
+	expiresAt := time.Now().Add(72 * time.Hour).UTC().Truncate(time.Second)
+
+	var createAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/ephemeral-databases":
+			createAuth = r.Header.Get("Authorization")
+			w.WriteHeader(http.StatusCreated)
+			writeJSON(t, w, map[string]any{
+				"claim_token":        testEphemeralToken,
+				"claim_url":          "https://capydb.dev/dashboard/claim/" + testEphemeralProjectID,
+				"ephemeral_database": ephemeralDatabaseJSON("provisioning", expiresAt),
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/ephemeral-databases/"+testEphemeralProjectID:
+			if got := r.Header.Get("Authorization"); got != "" {
+				t.Fatalf("claim-token read carried a credential: %q", got)
+			}
+			writeJSON(t, w, map[string]any{
+				"connections":        map[string]any{"direct_url": testEphemeralDirectURL, "pooled_url": testEphemeralPooledURL, "username": "usr"},
+				"ephemeral_database": ephemeralDatabaseJSON("ready", expiresAt),
+			})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	if output, err := runCommand(t, cwd, "--api-url", server.URL, "ephemeral", "create", "--no-env"); err != nil {
+		t.Fatalf("ephemeral create: %v\n%s", err, output)
+	}
+	if createAuth != "Bearer capy_live_test" {
+		t.Fatalf("create Authorization = %q, want the configured key", createAuth)
 	}
 }

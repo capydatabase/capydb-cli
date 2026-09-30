@@ -80,6 +80,11 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   days: `resumes (last 7 days): 5, p50 148ms, p95 1.2s, max 1.8s` (the raw `wake` object is in
   `-o json`).
 
+- **`capydb ephemeral create` sends your API key when one is configured** (`--api-key`,
+  `CAPYDB_API_KEY`, or a login), so the platform counts unclaimed databases against your account
+  instead of your network address. With no key it stays anonymous; status, claim and destroy are
+  still authenticated by the claim token alone.
+
 ### Changed
 
 - capydbclient v1.13.0 -> v1.14.0.

@@ -41,7 +41,10 @@ func (a *app) newEphemeralCommand() *cobra.Command {
 		Short: "Spin up a throwaway database with no account, and claim it if you want to keep it",
 		Long: "An ephemeral database is a real Postgres database created without signing up.\n" +
 			"It is destroyed, with its data, 72 hours after creation - unless you claim it\n" +
-			"into your CapyDB organization first, which turns it into a normal project.",
+			"into your CapyDB organization first, which turns it into a normal project.\n\n" +
+			"No account is needed. When an API key is configured (--api-key, CAPYDB_API_KEY, or\n" +
+			"`capydb login`), create sends it, and the number of unclaimed databases you may hold\n" +
+			"is counted per account instead of per network address.",
 	}
 
 	command.AddCommand(a.newEphemeralCreateCommand())
@@ -131,8 +134,20 @@ func (a *app) newEphemeralCreateCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			// The create carries the caller's API key when one is configured
+			// (--api-key, CAPYDB_API_KEY, or a login), so the platform counts it
+			// against the account's cap instead of the caller's address. Every
+			// other ephemeral call is authenticated by the claim token alone.
+			// With prompting off, resolveAuth fails only when no key is
+			// configured at all, which is the anonymous case.
+			createClient := client
+			if auth, authErr := a.resolveAuth(false, apiURL); authErr == nil {
+				if createClient, err = a.newAPIClient(apiURL, auth.APIKey); err != nil {
+					return err
+				}
+			}
 
-			created, err := client.CreateEphemeralDatabase(ctx, api.EphemeralDatabaseCreateRequest{
+			created, err := createClient.CreateEphemeralDatabase(ctx, api.EphemeralDatabaseCreateRequest{
 				Name:            strings.TrimSpace(name),
 				PostgresVersion: strings.TrimSpace(postgresVersion),
 				Region:          strings.TrimSpace(region),

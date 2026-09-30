@@ -8,6 +8,13 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Fixed
+
+- **CI on Windows is green again.** `TestValuesAndRemoveKeys` asserted that `RemoveKeys` left an
+  `.env` file at mode `0600`, but Windows has no POSIX mode bits and reports `0666` for every
+  writable file, so the assertion could never hold there. The function's contract is to keep the
+  file's existing mode; the test now checks exactly that (mode before == mode after) on every OS.
+
 ## [2.1.0] - 2026-09-30
 
 ### Added

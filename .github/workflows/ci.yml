@@ -51,6 +51,67 @@ jobs:
           token: ${{ secrets.CODECOV_TOKEN }}
           fail_ci_if_error: false
 
+  # Tests that call liveDatabaseURL (internal/cli/livedb_test.go) skip unless
+  # CAPYDB_CLI_TEST_DATABASE_URL points at a Postgres superuser; they also shell
+  # out to psql/pg_dump/pg_restore. Service containers only run on Linux, so
+  # they get their own job, and any skip here fails it instead of passing silently.
+  test-live-postgres:
+    name: Test (live Postgres)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 55432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      CAPYDB_CLI_TEST_DATABASE_URL: postgres://postgres:postgres@127.0.0.1:55432/postgres?sslmode=disable
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      # The runner image's preinstalled client is older than the server, and
+      # pg_dump refuses to dump a newer server.
+      - name: Install Postgres 17 client tools
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          echo /usr/lib/postgresql/17/bin >> "$GITHUB_PATH"
+
+      - name: Show client versions
+        run: |
+          psql --version
+          pg_dump --version
+          pg_restore --version
+
+      # An explicit `shell: bash` runs with pipefail, so a test failure is not
+      # masked by tee.
+      - name: Run tests against Postgres
+        shell: bash
+        run: go test -race -count=1 -v ./internal/cli/ 2>&1 | tee live-postgres.log
+
+      - name: Fail on skipped tests
+        run: |
+          if grep -- '--- SKIP' live-postgres.log; then
+            echo "::error::tests skipped in the live Postgres job; they must run here"
+            exit 1
+          fi
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

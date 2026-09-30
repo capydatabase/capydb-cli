@@ -105,6 +105,13 @@ func TestValuesAndRemoveKeys(t *testing.T) {
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// RemoveKeys promises to keep the file's existing mode, not a fixed 0600:
+	// Windows has no POSIX mode bits and reports 0666 for any writable file,
+	// so the check compares against what the file had before the rewrite.
+	before, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
 	values, err := Values(path)
 	if err != nil {
 		t.Fatal(err)
@@ -120,9 +127,12 @@ func TestValuesAndRemoveKeys(t *testing.T) {
 	if string(raw) != "# db\nEMPTY=\nOTHER='x'\n" {
 		t.Fatalf("file = %q", raw)
 	}
-	info, _ := os.Stat(path)
-	if info.Mode().Perm() != 0o600 {
-		t.Fatalf("mode changed to %v", info.Mode().Perm())
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Mode().Perm() != before.Mode().Perm() {
+		t.Fatalf("mode changed from %v to %v", before.Mode().Perm(), after.Mode().Perm())
 	}
 	if missing, err := Values(filepath.Join(t.TempDir(), "nope")); err != nil || len(missing) != 0 {
 		t.Fatalf("missing file: %v %v", missing, err)

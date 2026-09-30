@@ -34,6 +34,11 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   prints the requested and effective times (on stderr with `-o json`, where stdout stays the job),
   and the `--wait` summary names the effective time.
 
+- **`capydb projects retry <project>`** re-runs a failed provisioning: the same database with the
+  same credentials, so env files keep working. Repeating it returns the job already in flight; a
+  project that failed after its database was provisioned is refused with an explanation. Supports
+  `--wait` and `-o json`.
+
 ### Changed
 
 - capydbclient v1.13.0 -> v1.14.0.

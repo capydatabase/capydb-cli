@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -123,6 +126,51 @@ func (a *app) newProjectsCommand() *cobra.Command {
 	command.AddCommand(setEnvironmentCommand)
 	command.AddCommand(alwaysOnCommand)
 	command.AddCommand(a.newProjectsDeleteCommand())
+	command.AddCommand(a.newProjectsRetryCommand())
+	return command
+}
+
+// newProjectsRetryCommand re-runs provisioning for a project whose
+// provisioning failed. Like delete, the project is named explicitly.
+func (a *app) newProjectsRetryCommand() *cobra.Command {
+	var wait bool
+	var waitTimeout time.Duration
+
+	command := &cobra.Command{
+		Use:   "retry <project>",
+		Short: "Retry a project whose provisioning failed",
+		Long: `Re-runs provisioning for a project whose provisioning failed: the same database, with the same
+credentials, is created again, so env files and integrations keep working. Safe to repeat - while
+a provisioning job is queued or running, that job is returned instead of a new one.
+
+Only a project that failed while being provisioned can be retried; a project that failed in a
+later operation already has its database and is refused. Needs an organization admin or an
+organization-wide API key.`,
+		Args: cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
+			if err != nil {
+				return err
+			}
+			project, err := a.resolveProject(ctx, client, strings.TrimSpace(args[0]))
+			if err != nil {
+				return err
+			}
+			job, err := client.RetryProjectProvisioning(ctx, project.ID)
+			if err != nil {
+				if apiErr, ok := errors.AsType[*api.APIError](err); ok && apiErr.StatusCode == http.StatusConflict {
+					return fmt.Errorf("project %s cannot be retried: only a project whose provisioning failed can be (state %s): %w", project.Name, firstNonEmpty(project.State, "-"), err)
+				}
+				return fmt.Errorf("retry provisioning: %w", err)
+			}
+			if !a.jsonOutput() {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Queued provisioning job %s for project %s\n", job.ID, project.Name)
+			}
+			return a.maybeWaitForJob(cmd, client, job, wait, waitTimeout, "provisioning")
+		},
+	}
+	addWaitFlags(command, &wait, &waitTimeout, "provisioning")
 	return command
 }
 

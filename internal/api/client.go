@@ -1220,6 +1220,18 @@ func (c *Client) MajorUpgradePreflight(ctx context.Context, projectID string, ta
 	return response.Job, nil
 }
 
+// RetryProjectProvisioning re-runs a failed provisioning. It returns the job
+// already in flight when one is queued or running.
+func (c *Client) RetryProjectProvisioning(ctx context.Context, projectID string) (Job, error) {
+	var response struct {
+		Job Job `json:"job"`
+	}
+	if err := c.do(ctx, http.MethodPost, "/v1/projects/"+url.PathEscape(projectID)+"/retry-provisioning", nil, &response); err != nil {
+		return Job{}, err
+	}
+	return response.Job, nil
+}
+
 // GetMajorUpgradeStatus returns the major upgrade in flight, or nil when
 // there is none.
 func (c *Client) GetMajorUpgradeStatus(ctx context.Context, projectID string) (*MajorUpgradeStatus, error) {

@@ -1257,6 +1257,20 @@ func (c *Client) lint(ctx context.Context, path string) (LintReport, error) {
 	return response.Lint, nil
 }
 
+// SyncProjectIntegrationEnv queues a re-push of the project's connection env
+// vars to a connected vercel, netlify or cloudflare integration, using the
+// token stored when it was connected.
+func (c *Client) SyncProjectIntegrationEnv(ctx context.Context, projectID, provider string) (Job, error) {
+	var response struct {
+		Job Job `json:"job"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/integrations/" + url.PathEscape(provider) + "/sync"
+	if err := c.do(ctx, http.MethodPost, path, nil, &response); err != nil {
+		return Job{}, err
+	}
+	return response.Job, nil
+}
+
 // GetAppRole reports whether the project has its split-role runtime login
 // (app_user) and whether it may enable it now.
 func (c *Client) GetAppRole(ctx context.Context, projectID string) (AppRoleStatus, error) {

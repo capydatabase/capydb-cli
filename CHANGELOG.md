@@ -55,6 +55,11 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   guards (`--allow-unqualified-writes`, `--read-only`, `--max-rows`) - the way to rehearse a
   destructive statement before running it on the project.
 
+- **`capydb integrations sync <vercel|netlify|cloudflare>`** re-pushes the project's connection env
+  vars to an already connected platform with the token CapyDB stored at connect time - for a
+  variable edited or deleted on the platform, or a failed push. A project without that integration
+  and a push already in flight are both explained. Supports `--wait` and `-o json`.
+
 ### Changed
 
 - capydbclient v1.13.0 -> v1.14.0.

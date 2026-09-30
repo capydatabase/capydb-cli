@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"text/tabwriter"
@@ -2033,6 +2034,8 @@ func jobDone(job api.Job) bool {
 	}
 }
 
+// writeBackupTable lists backups. An expired backup's file is gone from
+// storage, so it is marked and explained rather than shown as restorable.
 func writeBackupTable(out io.Writer, backups []api.Backup) {
 	writer := tabwriter.NewWriter(out, 0, 8, 2, ' ', 0)
 	_, _ = fmt.Fprintln(writer, "ID\tLABEL\tSTATE\tVERIFY\tSIZE\tCREATED_AT\tBACKUP_KEY")
@@ -2042,7 +2045,7 @@ func writeBackupTable(out io.Writer, backups []api.Backup) {
 			"%s\t%s\t%s\t%s\t%s\t%s\t%s\n",
 			backup.ID,
 			firstNonEmpty(backup.Label, "-"),
-			backup.State,
+			backupStateLabel(backup.State),
 			firstNonEmpty(backup.VerificationState, "-"),
 			formatBytes(backup.SizeBytes),
 			formatTime(backup.CreatedAt),
@@ -2050,6 +2053,16 @@ func writeBackupTable(out io.Writer, backups []api.Backup) {
 		)
 	}
 	_ = writer.Flush()
+	if slices.ContainsFunc(backups, func(backup api.Backup) bool { return backup.State == "expired" }) {
+		_, _ = fmt.Fprintln(out, "expired*: the backup's file is no longer in storage; it is listed as a record and cannot be restored.")
+	}
+}
+
+func backupStateLabel(state string) string {
+	if state == "expired" {
+		return "expired*"
+	}
+	return firstNonEmpty(state, "-")
 }
 
 // jobTypeLabels maps internal job-kind tokens to the customer-facing action

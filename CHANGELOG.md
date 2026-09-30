@@ -101,6 +101,10 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   (`models.go`, `models.py`), so the CLI's own copy is removed. `--package` and `--style` are
   validated by the control plane; an invalid value now fails with its message rather than a local
   usage error.
+- `capydb kv status` explains a `stopped` store (the platform stopped it while the organization is
+  suspended and offline; it keeps its data and starts again when the suspension lifts), and
+  `capydb backups list` marks `expired` backups - listed as a record, their file no longer in
+  storage - as not restorable.
 - Text output labels every job type the control plane reports (major-upgrade steps, app-role
   enable and rotate, K/V stop and start, export, extension update, credential expiry, and the
   storage-tuning jobs) instead of falling back to a reworded internal name.

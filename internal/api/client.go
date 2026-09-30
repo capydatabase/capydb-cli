@@ -698,6 +698,16 @@ func (c *Client) GetProjectObservability(ctx context.Context, projectID string) 
 // executor-proven guarantee rather than a client-side check. Also sent only
 // when true, for the same older-control-plane reason.
 func (c *Client) RunSQL(ctx context.Context, projectID, query string, maxRows int, allowUnqualifiedWrites, readOnly bool) (SQLResult, error) {
+	return c.runSQL(ctx, "/v1/projects/"+projectID+"/sql", query, maxRows, allowUnqualifiedWrites, readOnly)
+}
+
+// RunPreviewSQL runs a statement against a preview database, with the same
+// guards as RunSQL. Preview executions are not recorded in SQL history.
+func (c *Client) RunPreviewSQL(ctx context.Context, previewID, query string, maxRows int, allowUnqualifiedWrites, readOnly bool) (SQLResult, error) {
+	return c.runSQL(ctx, "/v1/preview-databases/"+url.PathEscape(previewID)+"/sql", query, maxRows, allowUnqualifiedWrites, readOnly)
+}
+
+func (c *Client) runSQL(ctx context.Context, path, query string, maxRows int, allowUnqualifiedWrites, readOnly bool) (SQLResult, error) {
 	payload := map[string]any{
 		"query": query,
 	}
@@ -714,7 +724,7 @@ func (c *Client) RunSQL(ctx context.Context, projectID, query string, maxRows in
 	var response struct {
 		Result SQLResult `json:"result"`
 	}
-	if err := c.do(ctx, http.MethodPost, "/v1/projects/"+projectID+"/sql", payload, &response); err != nil {
+	if err := c.do(ctx, http.MethodPost, path, payload, &response); err != nil {
 		return SQLResult{}, err
 	}
 	return response.Result, nil

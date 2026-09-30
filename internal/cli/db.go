@@ -176,13 +176,21 @@ func (a *app) newSQLCommand() *cobra.Command {
 	var allowUnqualifiedWrites bool
 	var asJSON bool
 	var maxRows int
+	var previewID string
 	var projectRef string
 	var readOnly bool
 
 	command := &cobra.Command{
 		Use:   "sql <query>",
-		Short: "Run a SQL query against the project database",
-		Args:  cobra.ExactArgs(1),
+		Short: "Run a SQL query against the project database or a preview",
+		Long: `Runs one SQL statement and prints the result. An UPDATE or DELETE with no WHERE, and TRUNCATE, are
+refused unless --allow-unqualified-writes is passed; --read-only runs the statement in a read-only
+transaction so the server refuses every write. Rows are capped (server default 200, --max-rows up
+to 1000) and a statement times out after 15 seconds.
+
+--preview runs against a preview database instead - the place to rehearse a destructive statement
+before running it on the project. Preview executions are not recorded in the project's SQL history.`,
+		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
 			query := strings.TrimSpace(args[0])
@@ -190,19 +198,28 @@ func (a *app) newSQLCommand() *cobra.Command {
 				return usageErrorf("query cannot be empty")
 			}
 
+			if readOnly && allowUnqualifiedWrites {
+				return usageErrorf("--read-only and --allow-unqualified-writes contradict each other")
+			}
+			previewID = strings.TrimSpace(previewID)
+			if previewID != "" && strings.TrimSpace(projectRef) != "" {
+				return usageErrorf("--preview and --project are mutually exclusive")
+			}
+
 			client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
 			if err != nil {
 				return err
 			}
-			project, err := a.resolveProject(ctx, client, projectRef)
-			if err != nil {
-				return err
+			var result api.SQLResult
+			if previewID != "" {
+				result, err = client.RunPreviewSQL(ctx, previewID, query, maxRows, allowUnqualifiedWrites, readOnly)
+			} else {
+				project, resolveErr := a.resolveProject(ctx, client, projectRef)
+				if resolveErr != nil {
+					return resolveErr
+				}
+				result, err = client.RunSQL(ctx, project.ID, query, maxRows, allowUnqualifiedWrites, readOnly)
 			}
-
-			if readOnly && allowUnqualifiedWrites {
-				return usageErrorf("--read-only and --allow-unqualified-writes contradict each other")
-			}
-			result, err := client.RunSQL(ctx, project.ID, query, maxRows, allowUnqualifiedWrites, readOnly)
 			if err != nil {
 				return fmt.Errorf("run sql: %w", err)
 			}
@@ -219,6 +236,7 @@ func (a *app) newSQLCommand() *cobra.Command {
 	}
 
 	command.Flags().StringVar(&projectRef, "project", "", "Project id, slug, or name")
+	command.Flags().StringVar(&previewID, "preview", "", "Run against this preview database (id) instead of the project database")
 	command.Flags().IntVar(&maxRows, "max-rows", 0, "Maximum number of rows to return (server default when omitted)")
 	// Unlike the dashboard's SQL console, the CLI is guarded by default: it is
 	// as likely to be running inside a script as under a person, and a script

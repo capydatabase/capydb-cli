@@ -51,6 +51,10 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 - `capydb migrate rls --role-model split` (default `--target capydb`) now ends with a note that the
   bundle needs the project's runtime login and names `capydb roles app show|enable`.
 
+- **`capydb sql --preview <id>`** runs the statement against a preview database, with the same
+  guards (`--allow-unqualified-writes`, `--read-only`, `--max-rows`) - the way to rehearse a
+  destructive statement before running it on the project.
+
 ### Changed
 
 - capydbclient v1.13.0 -> v1.14.0.

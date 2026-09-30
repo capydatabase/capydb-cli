@@ -63,9 +63,10 @@ The CLI will:
 - `capydb orgs list` / `capydb orgs switch <org-id|slug>` (the CLI stores credentials per organization; switch the active one)
 - `capydb projects list`
 - `capydb regions` (region ids, display names and locations)
+- `capydb postgres-versions` (the Postgres majors new databases can use, with each one's channel: previous, stable - the default - current, beta)
 - `capydb link`
 - `capydb unlink`
-- `capydb env pull`
+- `capydb env pull` (also writes `DATABASE_APP_URL`/`DATABASE_APP_POOL_URL` once the project has its runtime login - see `capydb roles app`)
 - `capydb env sync vercel|netlify` (push the connection env vars to a Vercel project or Netlify site and keep them in sync on credential rotation)
 - `capydb preview list`
 - `capydb preview create`
@@ -86,28 +87,30 @@ The CLI will:
 - `capydb studio`
 - `capydb connection-string [--pooled] [--preview <id>]` (prints only the URL - script-friendly)
 - `capydb psql [--pooled] [--preview <id>] [-- <psql args>]`, alias `capydb connect` (opens psql against the project or a preview)
-- `capydb sql "select ..." [--max-rows N] [--json]` (runs a query through the bounded SQL runner)
-- `capydb metrics [--json]` (storage/connection usage, alerts, active and slow queries)
+- `capydb sql "select ..." [--max-rows N] [--read-only] [--preview <id>] [--json]` (runs a query through the bounded SQL runner; `--preview` runs it against a preview database)
+- `capydb metrics [--json]` (storage/connection usage, resume latency, alerts, active and slow queries)
 - `capydb extensions list|enable <name>|disable <name> [--project <ref>]` (Postgres extensions; enable/disable queue jobs and support `--wait`)
 - `capydb alerts list [--project <ref>]` / `capydb alerts ack <alert-id> [--project <ref>]` (resource alerts)
 - `capydb audit list [--project <ref>] [--limit N]` (project audit events)
 - `capydb api-keys list|create|revoke` (`create` requires `--name` and `--scopes`; `--project` makes the key project-scoped; the plaintext key is shown exactly once)
 - `capydb webhooks list|create|delete|rotate-secret|deliveries` (organization webhook endpoints; signing secrets are shown exactly once)
 - `capydb kv status|create|credentials|rotate-token|flush|delete [--project <ref>]` (the project's K/V store - key-value and rate limiting. `create` and `rotate-token` are the only chance to capture the token - only its hash is stored - and accept `--write-env` to merge `CAPYKV_REST_URL`, `CAPYKV_REST_TOKEN` and `CAPYKV_REDIS_URL` (the RESP URL, which carries the token as its password) into the project's env file, in which case the token and the RESP URL are written there instead of printed; `credentials` cannot show the token, because only its hash is stored)
-- `capydb create` (create a project and link the current directory; `--postgres-version 16|17|18`, `--environment production|non_production`, `--template drizzle-starter|auth-starter`)
+- `capydb create` (create a project and link the current directory; `--postgres-version 16|17|18|19` - 19 while offered as a beta, `--environment production|non_production`, `--template drizzle-starter|auth-starter`)
 - `capydb seed [file.sql] [--run "<command>"] [--preview <id>]` (load seed data; production needs `--confirm-production` and gets a restore point first)
-- `capydb db lint [--exit-code]` (missing primary keys, unindexed foreign keys, duplicate/unused/redundant indexes, bloat)
-- `capydb projects list|always-on|set-environment` (production projects stay awake by default; `always-on` and `set-environment` change the sleep policy)
+- `capydb db lint [--exit-code] [--preview <id>]` (missing primary keys, unindexed foreign keys, duplicate/unused/redundant indexes, bloat; runs server-side, so a `schema:read` key is enough)
+- `capydb projects list|always-on|set-environment|retry|delete` (production projects stay awake by default; `always-on` and `set-environment` change the sleep policy; `retry <project>` re-runs a failed provisioning)
+- `capydb roles app show|enable|rotate` (the split role model's runtime login, `app_user`, which row-level security applies to)
+- `capydb notifications show|set` (which notification emails the organization receives, and extra recipients)
 - `capydb credentials rotate [--grace-hours N]` (new database password; with a grace period, a new username too, and the old one keeps working until the window ends)
 - `capydb restore-points list|create|delete` (labelled points to restore to)
 - `capydb export [list|download]` (a downloadable dump of the project database)
-- `capydb logs [--follow]` (the project's database logs)
+- `capydb logs [--follow]` (the project's database logs, with each line's SQLSTATE) / `capydb logs --search <text> --sqlstate <codes> --since 7d` (search the archived logs of the last 30 days)
 - `capydb advisor indexes|index-hygiene` (index suggestions, and unused or redundant indexes)
-- `capydb upgrade preflight|minor` (Postgres version upgrades)
+- `capydb upgrade minor|preflight|major|confirm|rollback|status` (Postgres version upgrades; `major` runs the preflight first and each major step needs an admin's approval token)
 - `capydb schema dump|diff` and `capydb generate types|zod|drizzle|go|python [--watch]` (schema inspection and typed code from the live schema; `--watch` regenerates on schema changes)
 - `capydb init drizzle|prisma|kysely` or `capydb init --orm <name>` (scaffold the ORM for the linked project)
 - `capydb migrate scan|deps|rls|verify-rls|squash|verify|codemod` (plan and check a move from another Postgres provider)
-- `capydb integrations env` (print the env payload an integration would inject)
+- `capydb integrations env` (print the env payload an integration would inject) / `capydb integrations sync vercel|netlify|cloudflare` (re-push the env vars to a connected platform)
 - `capydb completion bash|zsh|fish|powershell` (shell completions; release archives and the Homebrew cask ship pre-generated scripts)
 
 Global flags on every command:

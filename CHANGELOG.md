@@ -8,6 +8,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-09-30
+
 ### Added
 
 - **`capydb postgres-versions`** lists the Postgres majors new databases can be created on, with
@@ -800,7 +802,9 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 - First release: project linking, `env pull`, preview databases, imports, logs, and studio.
 
-[Unreleased]: https://github.com/capydatabase/capydb-cli/compare/v1.8.0...HEAD
+[Unreleased]: https://github.com/capydatabase/capydb-cli/compare/v2.1.0...HEAD
+[2.1.0]: https://github.com/capydatabase/capydb-cli/compare/v2.0.0...v2.1.0
+[2.0.0]: https://github.com/capydatabase/capydb-cli/compare/v1.8.0...v2.0.0
 [1.8.0]: https://github.com/capydatabase/capydb-cli/compare/v1.7.1...v1.8.0
 [1.7.1]: https://github.com/capydatabase/capydb-cli/compare/v1.7.0...v1.7.1
 [1.7.0]: https://github.com/capydatabase/capydb-cli/compare/v1.6.0...v1.7.0

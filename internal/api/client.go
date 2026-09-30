@@ -77,6 +77,8 @@ type (
 	PostgresVersion                    = capydbclient.PostgresVersion
 	MajorUpgradeStatus                 = capydbclient.MajorUpgradeStatus
 	AppRoleStatus                      = capydbclient.AppRoleStatus
+	LintReport                         = capydbclient.LintReport
+	LintFinding                        = capydbclient.LintFinding
 	AppRoleConnectionInfo              = capydbclient.AppRoleConnectionInfo
 	ProvisionCloudflareDatabaseRequest = capydbclient.ProvisionCloudflareDatabaseRequest
 	ProvisionCloudflareDatabaseResult  = capydbclient.ProvisionCloudflareDatabaseResponse
@@ -1230,6 +1232,29 @@ func (c *Client) MajorUpgradePreflight(ctx context.Context, projectID string, ta
 		return Job{}, err
 	}
 	return response.Job, nil
+}
+
+// LintProject runs the server-side schema and index checks against the
+// project database (schema:read scope).
+func (c *Client) LintProject(ctx context.Context, projectID string) (LintReport, error) {
+	return c.lint(ctx, "/v1/projects/"+url.PathEscape(projectID)+"/lint")
+}
+
+// LintPreview runs the schema and catalog checks against a preview database.
+func (c *Client) LintPreview(ctx context.Context, previewID string) (LintReport, error) {
+	return c.lint(ctx, "/v1/preview-databases/"+url.PathEscape(previewID)+"/lint")
+}
+
+func (c *Client) lint(ctx context.Context, path string) (LintReport, error) {
+	var response struct {
+		Lint LintReport `json:"lint"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &response); err != nil {
+		return LintReport{}, err
+	}
+	response.Lint.Findings = capydbclient.NormalizeList(response.Lint.Findings)
+	response.Lint.Skipped = capydbclient.NormalizeList(response.Lint.Skipped)
+	return response.Lint, nil
 }
 
 // GetAppRole reports whether the project has its split-role runtime login

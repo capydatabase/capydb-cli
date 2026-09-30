@@ -58,6 +58,13 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 ### Changed
 
 - capydbclient v1.13.0 -> v1.14.0.
+- **`capydb db lint` runs server-side.** It calls the new lint endpoints
+  (`GET /v1/projects/{id}/lint`, `GET /v1/preview-databases/{id}/lint`) instead of running catalog
+  queries through the SQL endpoint, so an API key with only the `schema:read` scope can lint (a CI
+  key no longer needs `projects:write`). Output and `-o json` keep the same shape (`findings`,
+  `skipped`), and `--exit-code` still fails on warnings. A preview now gets the catalog checks too
+  (unindexed foreign keys, duplicate indexes, bloat); only the week-of-statistics checks are
+  skipped there.
 - Text output labels every job type the control plane reports (major-upgrade steps, app-role
   enable and rotate, K/V stop and start, export, extension update, credential expiry, and the
   storage-tuning jobs) instead of falling back to a reworded internal name.

@@ -17,6 +17,11 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ### Changed
 
+- **`capydb migrate codemod neon` no longer warns about `connection: { search_path }`.** CapyDB's
+  pooled endpoint (`:6432`) runs PgBouncer 1.26, which tracks `search_path` and applies the value a
+  postgres.js client sends at startup, where 1.25 refused the connection with `08P01`. The
+  codemod now treats it like `application_name`. `-c search_path=...` inside `options` is still
+  flagged: the pooler ignores `options` as a whole. Other per-connection GUCs keep their warnings.
 - **CI now runs the live-Postgres tests.** The seven tests that need a real database (`create
   --template`, data-only and Supabase-dump imports, `seed`) skipped on every run because nothing
   set `CAPYDB_CLI_TEST_DATABASE_URL`. A new `Test (live Postgres)` job starts a `postgres:17`

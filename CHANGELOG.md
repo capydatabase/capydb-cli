@@ -15,6 +15,14 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   writable file, so the assertion could never hold there. The function's contract is to keep the
   file's existing mode; the test now checks exactly that (mode before == mode after) on every OS.
 
+### Changed
+
+- **CI now runs the live-Postgres tests.** The seven tests that need a real database (`create
+  --template`, data-only and Supabase-dump imports, `seed`) skipped on every run because nothing
+  set `CAPYDB_CLI_TEST_DATABASE_URL`. A new `Test (live Postgres)` job starts a `postgres:17`
+  service, installs the matching 17 client tools, runs `./internal/cli/` against it, and fails if
+  any test in that run is skipped.
+
 ## [2.1.0] - 2026-09-30
 
 ### Added

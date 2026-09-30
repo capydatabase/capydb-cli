@@ -19,6 +19,16 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   the beta warning when the control plane sends one; `create -o json` adds `postgres_version`,
   `postgres_channel` and `postgres_warning`.
 
+- **`capydb upgrade major|confirm|rollback|status`: self-serve Postgres major upgrades.**
+  `upgrade major --target-major N` runs the preflight first and starts the upgrade only when it
+  passes (the control plane requires a passing preflight from the last hour); the previous
+  database is kept for 72 hours, until `upgrade confirm` deletes it or `upgrade rollback` returns
+  to it (discarding writes since the cutover). Each step needs its own single-use approval from an
+  organization admin, passed with `--approval-token` or `CAPYDB_APPROVAL_TOKEN` and checked before
+  anything runs, plus the usual typed-name confirmation or `--confirm`. `upgrade status` shows the
+  upgrade in flight and `rollback_available_until`. A 403 says that self-serve upgrades must be
+  enabled for the organization; they are off until CapyDB turns them on.
+
 ### Changed
 
 - capydbclient v1.13.0 -> v1.14.0.

@@ -1277,7 +1277,7 @@ func (a *app) newRestoreCommand() *cobra.Command {
 				// The control plane's gate is a single-use approval that only a
 				// person signed in to the dashboard can create; an API key cannot
 				// approve its own overwrite. The CLI presents the token it is given.
-				token := firstNonEmpty(strings.TrimSpace(approvalToken), strings.TrimSpace(os.Getenv("CAPYDB_APPROVAL_TOKEN")))
+				token := resolveApprovalToken(approvalToken)
 				if token == "" {
 					backupsURL, urlErr := buildDashboardURL(a.resolveAppURL(authConfig.APIURL), lookupWorkspaceSlug(ctx, client), project.Slug, project.ID, "backups")
 					if urlErr != nil {

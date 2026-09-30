@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/capydatabase/capydb-cli/internal/api"
 	"github.com/capydatabase/capydb-cli/internal/config"
 )
 
@@ -62,7 +64,7 @@ need only the confirmation.`,
 			// Anything but an explicit non_production label is treated as
 			// production: the control plane's default environment is
 			// production, so an unlabelled project needs the approval too.
-			token := firstNonEmpty(strings.TrimSpace(approvalToken), strings.TrimSpace(os.Getenv("CAPYDB_APPROVAL_TOKEN")))
+			token := resolveApprovalToken(approvalToken)
 			if project.Environment != "non_production" && token == "" {
 				settingsURL, urlErr := buildDashboardURL(a.resolveAppURL(authConfig.APIURL), lookupWorkspaceSlug(ctx, client), project.Slug, project.ID, "settings")
 				if urlErr != nil {
@@ -108,4 +110,22 @@ need only the confirmation.`,
 	_ = command.Flags().MarkHidden("yes")
 	addWaitFlags(command, &wait, &waitTimeout, "project deletion")
 	return command
+}
+
+// resolveApprovalToken is the approval token a destructive command presents:
+// the flag, else $CAPYDB_APPROVAL_TOKEN.
+func resolveApprovalToken(flag string) string {
+	return firstNonEmpty(strings.TrimSpace(flag), strings.TrimSpace(os.Getenv("CAPYDB_APPROVAL_TOKEN")))
+}
+
+// approvalRequiredError explains how to get the approval a step needs: only a
+// person signed in to the dashboard can create one, so it points at the
+// project's settings page. doing describes the refused step ("upgrading x");
+// approval names what to create ("a major upgrade").
+func (a *app) approvalRequiredError(ctx context.Context, client *api.Client, apiURL string, project api.Project, doing, approval string) error {
+	settingsURL, err := buildDashboardURL(a.resolveAppURL(apiURL), lookupWorkspaceSlug(ctx, client), project.Slug, project.ID, "settings")
+	if err != nil {
+		settingsURL = "the project's settings page in the dashboard"
+	}
+	return fmt.Errorf("%s needs an approval from an organization admin: open %s, create an approval for %s, and re-run with --approval-token <token> (or set CAPYDB_APPROVAL_TOKEN); the token works once, for 10 minutes. Nothing was changed", doing, settingsURL, approval)
 }

@@ -73,6 +73,7 @@ type (
 	ProjectLogs                        = capydbclient.ProjectLogs
 	ProjectObservability               = capydbclient.ProjectObservability
 	PostgresVersion                    = capydbclient.PostgresVersion
+	MajorUpgradeStatus                 = capydbclient.MajorUpgradeStatus
 	ProvisionCloudflareDatabaseRequest = capydbclient.ProvisionCloudflareDatabaseRequest
 	ProvisionCloudflareDatabaseResult  = capydbclient.ProvisionCloudflareDatabaseResponse
 	PublicStatusComponent              = capydbclient.StatusComponent
@@ -1210,6 +1211,55 @@ func (c *Client) MajorUpgradePreflight(ctx context.Context, projectID string, ta
 		Job Job `json:"job"`
 	}
 	path := fmt.Sprintf("/v1/projects/%s/upgrade/major/preflight?target_major=%d", projectID, targetMajor)
+	if err := c.do(ctx, http.MethodPost, path, nil, &response); err != nil {
+		return Job{}, err
+	}
+	return response.Job, nil
+}
+
+// GetMajorUpgradeStatus returns the major upgrade in flight, or nil when
+// there is none.
+func (c *Client) GetMajorUpgradeStatus(ctx context.Context, projectID string) (*MajorUpgradeStatus, error) {
+	var response capydbclient.MajorUpgradeStatusResponse
+	if err := c.do(ctx, http.MethodGet, "/v1/projects/"+url.PathEscape(projectID)+"/upgrade/major", nil, &response); err != nil {
+		return nil, err
+	}
+	return response.Upgrade, nil
+}
+
+// UpgradeProjectMajor starts a major upgrade to targetMajor. The control
+// plane requires a passing preflight for that target from the last hour and a
+// single-use project.upgrade_major approval token.
+func (c *Client) UpgradeProjectMajor(ctx context.Context, projectID string, targetMajor int, approvalToken string) (Job, error) {
+	query := url.Values{}
+	query.Set("target_major", strconv.Itoa(targetMajor))
+	return c.majorUpgradeStep(ctx, projectID, "", query, approvalToken)
+}
+
+// ConfirmMajorUpgrade finalizes a major upgrade, destroying the database kept
+// for rollback (project.upgrade_major_confirm approval token).
+func (c *Client) ConfirmMajorUpgrade(ctx context.Context, projectID, approvalToken string) (Job, error) {
+	return c.majorUpgradeStep(ctx, projectID, "/confirm", url.Values{}, approvalToken)
+}
+
+// RollbackMajorUpgrade swaps the project back to the database kept from
+// before the upgrade, discarding writes since the cutover
+// (project.upgrade_major_rollback approval token).
+func (c *Client) RollbackMajorUpgrade(ctx context.Context, projectID, approvalToken string) (Job, error) {
+	return c.majorUpgradeStep(ctx, projectID, "/rollback", url.Values{}, approvalToken)
+}
+
+func (c *Client) majorUpgradeStep(ctx context.Context, projectID, suffix string, query url.Values, approvalToken string) (Job, error) {
+	var response struct {
+		Job Job `json:"job"`
+	}
+	if token := strings.TrimSpace(approvalToken); token != "" {
+		query.Set("approval_token", token)
+	}
+	path := "/v1/projects/" + url.PathEscape(projectID) + "/upgrade/major" + suffix
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
 	if err := c.do(ctx, http.MethodPost, path, nil, &response); err != nil {
 		return Job{}, err
 	}

@@ -152,7 +152,7 @@ const pool = new Pool({ options: '-c search_path=tenant' });
 }
 
 func TestDetectPoolerStartupParamsRejectedGUC(t *testing.T) {
-	input := `const sql = postgres(url, { connection: { search_path: "tenant_42" } });`
+	input := `const sql = postgres(url, { connection: { default_transaction_read_only: true } });`
 	report := codemodReport{}
 	detectPoolerStartupParams("src/db.ts", input, &report)
 	if len(report.Manual) != 1 {
@@ -160,6 +160,17 @@ func TestDetectPoolerStartupParamsRejectedGUC(t *testing.T) {
 	}
 	if !strings.Contains(report.Manual[0].Reason, "08P01") {
 		t.Errorf("rejected GUC must mention the handshake failure, got: %s", report.Manual[0].Reason)
+	}
+}
+
+// search_path is tracked by the pooler since PgBouncer 1.26 and applied per
+// client, so sending it as its own startup parameter needs no warning.
+func TestDetectPoolerStartupParamsTrackedSearchPath(t *testing.T) {
+	input := `const sql = postgres(url, { connection: { search_path: "tenant_42" } });`
+	report := codemodReport{}
+	detectPoolerStartupParams("src/db.ts", input, &report)
+	if len(report.Manual)+len(report.Changes) != 0 {
+		t.Errorf("search_path is pooler-tracked and must not warn, got %+v", report)
 	}
 }
 

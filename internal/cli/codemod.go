@@ -277,7 +277,9 @@ var (
 	// Per-connection GUCs handed to the driver as wire startup parameters
 	// (2026-07-22 ermisai incident). Through the transaction pooler these never
 	// work: the timeout family is accepted but silently ignored, anything else
-	// is rejected at handshake (08P01), refusing every pooled connection.
+	// is rejected at handshake (08P01), refusing every pooled connection. The
+	// exceptions are the tracked parameters below (application_name, and
+	// search_path since PgBouncer 1.26), which are applied per client.
 	// postgres-js: postgres(url, { connection: { statement_timeout: ... } }).
 	postgresJSConnectionGUCPattern = regexp.MustCompile(`connection\s*:\s*\{[^}]*?\b(statement_timeout|idle_in_transaction_session_timeout|lock_timeout|idle_session_timeout|search_path|default_transaction_[a-z_]+|application_name)\b`)
 	// node-postgres/libpq: options: '-c statement_timeout=10000'.
@@ -298,8 +300,13 @@ var poolerIgnoredStartupGUCs = map[string]struct{}{
 }
 
 // Startup parameters PgBouncer tracks and replays per client - safe to send.
+// search_path is tracked since PgBouncer 1.26 (CapyDB poolers, 2026-09-30):
+// the startup value is applied to each borrowed server connection. Inside
+// options=-c it is still dropped with the rest of options. KEEP IN LOCKSTEP
+// with POOLER_TRACKED_STARTUP_PARAMS in @capydb/drizzle.
 var poolerTrackedStartupGUCs = map[string]struct{}{
 	"application_name": {},
+	"search_path":      {},
 }
 
 func codemodSourceFile(path, content string, report *codemodReport) string {
@@ -495,8 +502,8 @@ func codemodEnvFile(path, content string, report *codemodReport) string {
 // detectPoolerStartupParams flags driver configs that send per-connection GUCs
 // as wire startup parameters, which never work through CapyDB's transaction
 // pooler (:6432): the timeout family is accepted but silently ignored, and
-// anything else is rejected at handshake (08P01), refusing every pooled
-// connection. Warn-only - the fix (ALTER ROLE ... SET, or moving the setting
+// anything not tracked by the pooler (poolerTrackedStartupGUCs) is rejected at
+// handshake (08P01), refusing every pooled connection. Warn-only - the fix (ALTER ROLE ... SET, or moving the setting
 // to the direct URL) needs human judgment, never a rewrite.
 func detectPoolerStartupParams(path, content string, report *codemodReport) {
 	for _, m := range postgresJSConnectionGUCPattern.FindAllStringSubmatchIndex(content, -1) {

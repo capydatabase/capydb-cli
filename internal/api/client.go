@@ -72,6 +72,7 @@ type (
 	ProjectLogEntry                    = capydbclient.ProjectLogEntry
 	ProjectLogs                        = capydbclient.ProjectLogs
 	ProjectObservability               = capydbclient.ProjectObservability
+	PostgresVersion                    = capydbclient.PostgresVersion
 	ProvisionCloudflareDatabaseRequest = capydbclient.ProvisionCloudflareDatabaseRequest
 	ProvisionCloudflareDatabaseResult  = capydbclient.ProvisionCloudflareDatabaseResponse
 	PublicStatusComponent              = capydbclient.StatusComponent
@@ -858,6 +859,16 @@ func (c *Client) RotateCredentials(ctx context.Context, projectID string, graceH
 		return Job{}, err
 	}
 	return response.Job, nil
+}
+
+// ListPostgresVersions returns the Postgres majors a new database can be
+// created on, oldest first, with each one's release channel.
+func (c *Client) ListPostgresVersions(ctx context.Context) ([]PostgresVersion, error) {
+	var response capydbclient.PostgresVersionsResponse
+	if err := c.do(ctx, http.MethodGet, "/v1/postgres-versions", nil, &response); err != nil {
+		return nil, err
+	}
+	return capydbclient.NormalizeList(response.Versions), nil
 }
 
 // ListRegions returns the regions open for new projects with their display

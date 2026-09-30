@@ -139,6 +139,7 @@ Exit codes:
 	root.AddCommand(application.newLogsCommand())
 	root.AddCommand(application.newProjectsCommand())
 	root.AddCommand(application.newRegionsCommand())
+	root.AddCommand(application.newPostgresVersionsCommand())
 	root.AddCommand(application.newOrgsCommand())
 	root.AddCommand(application.newWebhooksCommand())
 	root.AddCommand(application.newAPIKeysCommand())
@@ -550,15 +551,16 @@ func (a *app) newCreateCommand() *cobra.Command {
 					ProjectSlug:   createdProject.Slug,
 				}
 
-				if err := a.writeProjectEnv(cmd, client, createdProject.ID, linkConfig, envFileOverride, true, overwriteEnv); err != nil {
+				provisioned, err := a.writeProjectEnv(cmd, client, createdProject.ID, linkConfig, envFileOverride, true, overwriteEnv)
+				if err != nil {
 					return err
 				}
 
 				if a.jsonOutput() {
-					return a.printCreateJSONSummary(cmd, detection, createdProject, job)
+					return a.printCreateJSONSummary(cmd, detection, provisioned, job)
 				}
 				printLinkSummary(cmd, detection, linkConfig)
-				printCreateNotes(cmd, createdProject)
+				printCreateNotes(cmd, provisioned)
 				return nil
 			}()
 			if err != nil && a.jsonOutput() {
@@ -581,7 +583,7 @@ func (a *app) newCreateCommand() *cobra.Command {
 	command.Flags().StringVar(&region, "region", "", "Region id for project placement, e.g. eu-north-1 (see `capydb regions`; server picks one when omitted)")
 	command.Flags().StringVar(&slug, "slug", "", "Project slug override")
 	command.Flags().StringVar(&environment, "environment", "", "Environment label: production (default) or non_production (unlocks overwrite-restore)")
-	command.Flags().StringVar(&postgresVersion, "postgres-version", "", "Postgres major version: 16, 17, or 18 (the --source-url major, else the server default, when omitted)")
+	command.Flags().StringVar(&postgresVersion, "postgres-version", "", postgresVersionFlagHelp+" (the --source-url major, else the server default, when omitted)")
 	command.Flags().StringVar(&sourceURL, "source-url", "", "Database you will import from: the project gets its Postgres major (read-only version query)")
 	command.Flags().DurationVar(&waitTimeout, "wait-timeout", defaultWaitTimeout, "Maximum time to wait for the provision job")
 	return command
@@ -629,7 +631,7 @@ func (a *app) newLinkCommand() *cobra.Command {
 				ProjectSlug:   resolvedProject.Slug,
 			}
 
-			if err := a.writeProjectEnv(cmd, client, resolvedProject.ID, linkConfig, envFileOverride, true, overwriteEnv); err != nil {
+			if _, err := a.writeProjectEnv(cmd, client, resolvedProject.ID, linkConfig, envFileOverride, true, overwriteEnv); err != nil {
 				return err
 			}
 			if err := a.persistResolvedAuth(authConfig); err != nil {
@@ -696,7 +698,7 @@ func (a *app) newEnvCommand() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			if err := a.writeProjectEnv(cmd, client, linkConfig.ProjectID, linkConfig, envFileOverride, false, false); err != nil {
+			if _, err := a.writeProjectEnv(cmd, client, linkConfig.ProjectID, linkConfig, envFileOverride, false, false); err != nil {
 				return err
 			}
 			if err := a.persistResolvedAuth(authConfig); err != nil {
@@ -840,15 +842,17 @@ func (a *app) saveAuthAndPrint(cmd *cobra.Command, authConfig resolvedAuth) erro
 	return nil
 }
 
-func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID string, linkConfig config.ProjectConfig, envFileOverride string, confirmOverwrite, forceOverwrite bool) error {
+// It returns the project as fetched, after provisioning, so callers can report
+// what the database runs (its Postgres major and channel).
+func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID string, linkConfig config.ProjectConfig, envFileOverride string, confirmOverwrite, forceOverwrite bool) (api.Project, error) {
 	ctx := cmd.Context()
 	projectDetails, _, err := client.GetProject(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("fetch project: %w", err)
+		return api.Project{}, fmt.Errorf("fetch project: %w", err)
 	}
 	connections, err := client.GetProjectConnection(ctx, projectID)
 	if err != nil {
-		return fmt.Errorf("fetch project connections: %w", err)
+		return api.Project{}, fmt.Errorf("fetch project connections: %w", err)
 	}
 
 	envPath := linkConfig.EnvFile
@@ -871,7 +875,7 @@ func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID 
 			plan.Vars[kvRestURLVar] = restURL
 		}
 	} else if !capydbclient.IsNotFound(err) {
-		return fmt.Errorf("fetch kv store: %w", err)
+		return api.Project{}, fmt.Errorf("fetch kv store: %w", err)
 	}
 
 	// forceOverwrite (--overwrite-env) skips the interactive conflict prompt:
@@ -889,7 +893,7 @@ func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID 
 		resolver = refreshResolver(a.envOverwriteResolver(cmd))
 	}
 	if err := envfile.UpsertWithResolver(envAbsPath, plan.Vars, resolver); err != nil {
-		return err
+		return api.Project{}, err
 	}
 
 	linkConfig.Region = firstNonEmpty(linkConfig.Region, projectDetails.Region)
@@ -903,7 +907,7 @@ func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID 
 	linkConfig.ProjectSlug = projectDetails.Slug
 
 	if err := config.SaveProjectConfig(a.cwd, linkConfig); err != nil {
-		return err
+		return api.Project{}, err
 	}
 
 	// Ensure both the local link directory and the credential-bearing env file
@@ -911,11 +915,11 @@ func (a *app) writeProjectEnv(cmd *cobra.Command, client *api.Client, projectID 
 	// password, so it must never be committed.
 	envIgnore := envIgnoreEntry(linkConfig.AppPath, envPath)
 	if err := gitignore.EnsureLocalConfigIgnored(a.cwd, envIgnore); err != nil {
-		return err
+		return api.Project{}, err
 	}
 
 	warnEnvShadowing(cmd, a.cwd, envPath)
-	return nil
+	return projectDetails, nil
 }
 
 // warnEnvShadowing reports env keys that now point at two different databases.
@@ -1166,6 +1170,11 @@ func (a *app) printCreateJSONSummary(cmd *cobra.Command, detection project.Detec
 		ProjectID   string   `json:"project_id"`
 		ProjectName string   `json:"project_name"`
 		ProjectSlug string   `json:"project_slug,omitempty"`
+		// The database's major, its release channel, and - for a beta major
+		// only - what CapyDB does not guarantee for it.
+		PostgresVersion string `json:"postgres_version,omitempty"`
+		PostgresChannel string `json:"postgres_channel,omitempty"`
+		PostgresWarning string `json:"postgres_warning,omitempty"`
 	}{
 		Region:      linkConfig.Region,
 		EnvFile:     firstNonEmpty(filepath.Join(detection.AppPath, linkConfig.EnvFile), linkConfig.EnvFile),
@@ -1176,6 +1185,10 @@ func (a *app) printCreateJSONSummary(cmd *cobra.Command, detection project.Detec
 		ProjectID:   createdProject.ID,
 		ProjectName: createdProject.Name,
 		ProjectSlug: createdProject.Slug,
+
+		PostgresVersion: createdProject.PostgresVersion,
+		PostgresChannel: createdProject.PostgresChannel,
+		PostgresWarning: createdProject.PostgresWarning,
 	})
 }
 
@@ -1220,6 +1233,12 @@ func printLinkSummary(cmd *cobra.Command, detection project.Detection, linkConfi
 // cheap decisions on an empty cell and awkward ones once it carries traffic.
 func printCreateNotes(cmd *cobra.Command, createdProject api.Project) {
 	out := cmd.OutOrStdout()
+	if createdProject.PostgresVersion != "" {
+		_, _ = fmt.Fprintf(out, "- Postgres %s.\n", postgresLabel(createdProject.PostgresVersion, createdProject.PostgresChannel))
+	}
+	if warning := strings.TrimSpace(createdProject.PostgresWarning); warning != "" {
+		_, _ = fmt.Fprintf(out, "- Warning: %s\n", warning)
+	}
 	if createdProject.AlwaysOn {
 		_, _ = fmt.Fprintln(out, "- Stays awake: this project will not pause when idle (the default for production).")
 	} else {

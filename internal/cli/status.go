@@ -54,6 +54,9 @@ type statusRemoteProject struct {
 	Name               string                    `json:"name"`
 	State              string                    `json:"state"`
 	Environment        string                    `json:"environment,omitempty"`
+	PostgresVersion    string                    `json:"postgres_version,omitempty"`
+	PostgresChannel    string                    `json:"postgres_channel,omitempty"`
+	PostgresWarning    string                    `json:"postgres_warning,omitempty"`
 	LastError          string                    `json:"last_error,omitempty"`
 	LatestJob          *api.Job                  `json:"latest_job,omitempty"`
 	LatestJobError     string                    `json:"latest_job_error,omitempty"`
@@ -184,6 +187,10 @@ func (a *app) buildStatusReport(cmd *cobra.Command, options statusOptions) (stat
 		State:       firstNonEmpty(project.State, "-"),
 		Environment: project.Environment,
 		LastError:   project.LastError,
+
+		PostgresVersion: project.PostgresVersion,
+		PostgresChannel: project.PostgresChannel,
+		PostgresWarning: project.PostgresWarning,
 	}
 	report.RemoteProject = remote
 
@@ -290,6 +297,12 @@ func writeStatusReport(cmd *cobra.Command, report statusReport, options statusOp
 	_, _ = fmt.Fprintf(out, "remote_project_name: %s\n", remote.Name)
 	_, _ = fmt.Fprintf(out, "remote_project_state: %s\n", remote.State)
 	_, _ = fmt.Fprintf(out, "remote_project_environment: %s\n", firstNonEmpty(remote.Environment, "-"))
+	if remote.PostgresVersion != "" {
+		_, _ = fmt.Fprintf(out, "remote_project_postgres: %s\n", postgresLabel(remote.PostgresVersion, remote.PostgresChannel))
+	}
+	if strings.TrimSpace(remote.PostgresWarning) != "" {
+		_, _ = fmt.Fprintf(out, "remote_project_postgres_warning: %s\n", remote.PostgresWarning)
+	}
 	if strings.TrimSpace(remote.LastError) != "" {
 		_, _ = fmt.Fprintf(out, "remote_project_error: %s\n", remote.LastError)
 	}

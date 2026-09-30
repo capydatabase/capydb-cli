@@ -217,7 +217,8 @@ func (a *app) newEphemeralCreateCommand() *cobra.Command {
 			}
 
 			out := cmd.OutOrStdout()
-			_, _ = fmt.Fprintf(out, "Ephemeral database %s is ready (%s, Postgres %s)\n", details.EphemeralDatabase.Name, details.EphemeralDatabase.Region, details.EphemeralDatabase.PostgresVersion)
+			_, _ = fmt.Fprintf(out, "Ephemeral database %s is ready (%s, Postgres %s)\n", details.EphemeralDatabase.Name, details.EphemeralDatabase.Region, postgresLabel(details.EphemeralDatabase.PostgresVersion, details.EphemeralDatabase.PostgresChannel))
+			writePostgresWarning(out, details.EphemeralDatabase.PostgresWarning)
 			if noEnv {
 				_, _ = fmt.Fprintf(out, "Pooled URL: %s\n", details.Connections.PooledURL)
 				_, _ = fmt.Fprintf(out, "Direct URL: %s\n", details.Connections.DirectURL)
@@ -235,7 +236,7 @@ func (a *app) newEphemeralCreateCommand() *cobra.Command {
 	command.Flags().BoolVar(&noEnv, "no-env", false, "Do not touch an env file; print the connection strings instead")
 	command.Flags().StringVar(&name, "name", "", "Display name for the database")
 	command.Flags().StringVar(&region, "region", "", "Region id, e.g. eu-north-1 (see `capydb regions`; server picks one when omitted)")
-	command.Flags().StringVar(&postgresVersion, "postgres-version", "", "Postgres major version: 16, 17, or 18 (default: platform default)")
+	command.Flags().StringVar(&postgresVersion, "postgres-version", "", postgresVersionFlagHelp+" (default: platform default)")
 	command.Flags().DurationVar(&waitTimeout, "wait-timeout", defaultEphemeralWaitTimeout, "How long to wait for the database to come up")
 	return command
 }
@@ -271,7 +272,8 @@ func (a *app) newEphemeralStatusCommand() *cobra.Command {
 
 			out := cmd.OutOrStdout()
 			database := details.EphemeralDatabase
-			_, _ = fmt.Fprintf(out, "Ephemeral database %s: %s (%s, Postgres %s)\n", database.Name, database.State, database.Region, firstNonEmpty(database.PostgresVersion, "-"))
+			_, _ = fmt.Fprintf(out, "Ephemeral database %s: %s (%s, Postgres %s)\n", database.Name, database.State, database.Region, postgresLabel(database.PostgresVersion, database.PostgresChannel))
+			writePostgresWarning(out, database.PostgresWarning)
 			writeEphemeralLifetime(out, database.ExpiresAt)
 			if showClaimURL {
 				_, _ = fmt.Fprintf(out, "Claim link: %s\n", state.ClaimURL)
@@ -338,7 +340,7 @@ func (a *app) newEphemeralClaimCommand() *cobra.Command {
 					linkConfig.Framework = detection.Framework
 					linkConfig.Profile = detection.Profile
 				}
-				if err := a.writeProjectEnv(cmd, client, claimed.ID, linkConfig, state.EnvFile, false, true); err != nil {
+				if _, err := a.writeProjectEnv(cmd, client, claimed.ID, linkConfig, state.EnvFile, false, true); err != nil {
 					return err
 				}
 			} else if err := config.SaveProjectConfig(a.cwd, linkConfig); err != nil {

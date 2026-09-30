@@ -8,6 +8,17 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Added
+
+- **`capydb postgres-versions`** lists the Postgres majors new databases can be created on, with
+  each one's release channel (`previous`, `stable` - the default - `current`, or `beta`), whether
+  it is the default, and whether it is production ready (`-o json` for the raw list).
+- `--postgres-version` on `create`, `ephemeral create` and `cloudflare create-database` documents
+  `19`, accepted while CapyDB offers it as a beta. `create`, `ephemeral create`/`status` and
+  `status --remote` show the database's major with its channel (`Postgres 18 (current)`) and print
+  the beta warning when the control plane sends one; `create -o json` adds `postgres_version`,
+  `postgres_channel` and `postgres_warning`.
+
 ### Changed
 
 - capydbclient v1.13.0 -> v1.14.0.

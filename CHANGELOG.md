@@ -60,6 +60,12 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   variable edited or deleted on the platform, or a failed push. A project without that integration
   and a push already in flight are both explained. Supports `--wait` and `-o json`.
 
+- **`capydb notifications show|set`** reads and changes the organization's notification
+  preferences: whether alert emails are sent (`--alert-emails on|off`) and the extra recipients of
+  alert emails and billing notices (`--alert-recipients`, `--billing-recipients`; comma-separated,
+  `""` clears). `set` changes only the settings passed - it reads the current preferences and sends
+  the full replacement the API requires. `-o json` on both.
+
 ### Changed
 
 - capydbclient v1.13.0 -> v1.14.0.

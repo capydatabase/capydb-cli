@@ -77,6 +77,8 @@ type (
 	PostgresVersion                    = capydbclient.PostgresVersion
 	MajorUpgradeStatus                 = capydbclient.MajorUpgradeStatus
 	AppRoleStatus                      = capydbclient.AppRoleStatus
+	NotificationPreferences            = capydbclient.NotificationPreferences
+	PutNotificationPreferencesRequest  = capydbclient.PutNotificationPreferencesRequest
 	LintReport                         = capydbclient.LintReport
 	LintFinding                        = capydbclient.LintFinding
 	AppRoleConnectionInfo              = capydbclient.AppRoleConnectionInfo
@@ -1269,6 +1271,39 @@ func (c *Client) SyncProjectIntegrationEnv(ctx context.Context, projectID, provi
 		return Job{}, err
 	}
 	return response.Job, nil
+}
+
+// GetNotificationPreferences returns which notification emails the
+// organization receives and who receives them (the defaults when it never
+// saved any).
+func (c *Client) GetNotificationPreferences(ctx context.Context, orgID string) (NotificationPreferences, error) {
+	var response struct {
+		Preferences NotificationPreferences `json:"notification_preferences"`
+	}
+	if err := c.do(ctx, http.MethodGet, "/v1/organizations/"+url.PathEscape(orgID)+"/notification-preferences", nil, &response); err != nil {
+		return NotificationPreferences{}, err
+	}
+	return normalizeNotificationPreferences(response.Preferences), nil
+}
+
+// PutNotificationPreferences replaces the organization's notification
+// preferences: every field is sent, so read-modify-write to change one.
+func (c *Client) PutNotificationPreferences(ctx context.Context, orgID string, request PutNotificationPreferencesRequest) (NotificationPreferences, error) {
+	request.AlertEmailRecipients = capydbclient.NormalizeList(request.AlertEmailRecipients)
+	request.BillingEmailRecipients = capydbclient.NormalizeList(request.BillingEmailRecipients)
+	var response struct {
+		Preferences NotificationPreferences `json:"notification_preferences"`
+	}
+	if err := c.do(ctx, http.MethodPut, "/v1/organizations/"+url.PathEscape(orgID)+"/notification-preferences", request, &response); err != nil {
+		return NotificationPreferences{}, err
+	}
+	return normalizeNotificationPreferences(response.Preferences), nil
+}
+
+func normalizeNotificationPreferences(preferences NotificationPreferences) NotificationPreferences {
+	preferences.AlertEmailRecipients = capydbclient.NormalizeList(preferences.AlertEmailRecipients)
+	preferences.BillingEmailRecipients = capydbclient.NormalizeList(preferences.BillingEmailRecipients)
+	return preferences
 }
 
 // GetAppRole reports whether the project has its split-role runtime login

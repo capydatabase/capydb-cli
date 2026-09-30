@@ -144,6 +144,7 @@ Exit codes:
 	root.AddCommand(application.newPostgresVersionsCommand())
 	root.AddCommand(application.newOrgsCommand())
 	root.AddCommand(application.newWebhooksCommand())
+	root.AddCommand(application.newNotificationsCommand())
 	root.AddCommand(application.newAPIKeysCommand())
 	root.AddCommand(application.newAuditCommand())
 	root.AddCommand(application.newExtensionsCommand())

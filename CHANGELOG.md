@@ -30,7 +30,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 - Go 1.27.3: `go` directive and the Docker build image (`golang:1.27.3-alpine`). Indirect
   dependencies: `github.com/jackc/puddle/v2` v2.2.3, `golang.org/x/sync` v0.24.0,
   `golang.org/x/text` v0.43.0. `go fix` modernizations (`strings.SplitSeq`/`FieldsSeq`,
-  `maps.Copy`). No behavior change.
+  `maps.Copy`). No behavior change. CI lints with golangci-lint v2.15.0 (was v2.13.2, which cannot
+  read Go 1.27.3 export data).
 
 ## [2.1.0] - 2026-09-30
 

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"maps"
 	"net/http"
 	"strings"
 	"testing"
@@ -28,9 +29,7 @@ func notificationsServer(t *testing.T, puts *[]map[string]any) string {
 			}
 			*puts = append(*puts, body)
 			saved := map[string]any{"organization_id": "org_1", "updated_at": "2026-09-30T10:00:00Z"}
-			for key, value := range body {
-				saved[key] = value
-			}
+			maps.Copy(saved, body)
 			writeJSON(t, w, map[string]any{"notification_preferences": saved})
 		},
 	})

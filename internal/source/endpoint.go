@@ -66,7 +66,7 @@ func ParseEndpoint(raw string) (Endpoint, error) {
 	}
 
 	endpoint := Endpoint{}
-	for _, field := range strings.Fields(raw) {
+	for field := range strings.FieldsSeq(raw) {
 		key, value, ok := strings.Cut(field, "=")
 		if !ok {
 			return Endpoint{}, fmt.Errorf("connection string is neither a postgres:// URL nor key=value pairs")

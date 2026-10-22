@@ -85,7 +85,7 @@ type tocEntry struct {
 // OWNER"), skipping comments and blank lines.
 func parseTOC(listing string) []tocEntry {
 	var entries []tocEntry
-	for _, line := range strings.Split(listing, "\n") {
+	for line := range strings.SplitSeq(listing, "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, ";") {
 			continue

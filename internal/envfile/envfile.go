@@ -97,7 +97,7 @@ func Values(path string) (map[string]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read env file: %w", err)
 	}
-	for _, line := range strings.Split(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
+	for line := range strings.SplitSeq(strings.ReplaceAll(string(data), "\r\n", "\n"), "\n") {
 		key, _, ok := parseAssignment(line)
 		if !ok {
 			continue

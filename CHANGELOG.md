@@ -27,6 +27,10 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   set `CAPYDB_CLI_TEST_DATABASE_URL`. A new `Test (live Postgres)` job starts a `postgres:17`
   service, installs the matching 17 client tools, runs `./internal/cli/` against it, and fails if
   any test in that run is skipped.
+- Go 1.27.3: `go` directive and the Docker build image (`golang:1.27.3-alpine`). Indirect
+  dependencies: `github.com/jackc/puddle/v2` v2.2.3, `golang.org/x/sync` v0.24.0,
+  `golang.org/x/text` v0.43.0. `go fix` modernizations (`strings.SplitSeq`/`FieldsSeq`,
+  `maps.Copy`). No behavior change.
 
 ## [2.1.0] - 2026-09-30
 

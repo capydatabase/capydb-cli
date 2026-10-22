@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -24,12 +25,8 @@ var fakeProject = map[string]any{
 func newFakeControlPlane(t *testing.T, project map[string]any, routes map[string]http.HandlerFunc) *httptest.Server {
 	t.Helper()
 	merged := map[string]any{}
-	for key, value := range fakeProject {
-		merged[key] = value
-	}
-	for key, value := range project {
-		merged[key] = value
-	}
+	maps.Copy(merged, fakeProject)
+	maps.Copy(merged, project)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		key := r.Method + " " + r.URL.Path
 		if handler, ok := routes[key]; ok {

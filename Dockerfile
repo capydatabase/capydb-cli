@@ -10,7 +10,7 @@
 # ═════════════════════════════════════════════════════════════════════════════
 
 # ── build-time knobs (override with --build-arg) ─────────────────────────────
-ARG BUILD_IMAGE=golang:1.27.1-alpine
+ARG BUILD_IMAGE=golang:1.27.3-alpine
 ARG RUNTIME_IMAGE=alpine:3.24
 
 ARG APP_UID=10001

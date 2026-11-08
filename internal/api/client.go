@@ -39,6 +39,8 @@ type Viewer = capydbclient.Viewer
 // alias where the command output already uses that word.
 type (
 	ActiveQuery                        = capydbclient.ActiveQuerySample
+	ProjectLogErrorGroup               = capydbclient.ProjectLogErrorGroup
+	ProjectLogErrors                   = capydbclient.ProjectLogErrors
 	Backup                             = capydbclient.Backup
 	CLILoginSessionStart               = capydbclient.CLILoginSessionStartResponse
 	CLILoginSessionStartRequest        = capydbclient.CLILoginSessionStartRequest
@@ -691,6 +693,33 @@ func (c *Client) GetProjectLogs(ctx context.Context, projectID string, query Pro
 		return ProjectLogs{}, err
 	}
 	return response.Logs, nil
+}
+
+// GetProjectLogErrors fetches the ERROR/FATAL/PANIC lines of the trailing
+// window grouped by SQLSTATE and normalised message (busiest first), each
+// with the newest occurrence's statement and a retryable verdict. hours and
+// limit are optional (server defaults: 1 h, 500 lines).
+func (c *Client) GetProjectLogErrors(ctx context.Context, projectID string, hours, limit int) (ProjectLogErrors, error) {
+	values := url.Values{}
+	if hours > 0 {
+		values.Set("hours", strconv.Itoa(hours))
+	}
+	if limit > 0 {
+		values.Set("limit", strconv.Itoa(limit))
+	}
+	path := "/v1/projects/" + projectID + "/logs/errors"
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+
+	var response struct {
+		Errors ProjectLogErrors `json:"errors"`
+	}
+	if err := c.do(ctx, http.MethodGet, path, nil, &response); err != nil {
+		return ProjectLogErrors{}, err
+	}
+	response.Errors.Groups = capydbclient.NormalizeList(response.Errors.Groups)
+	return response.Errors, nil
 }
 
 func (c *Client) GetProject(ctx context.Context, projectID string) (Project, ProjectConnectionInfo, error) {

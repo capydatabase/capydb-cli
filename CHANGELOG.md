@@ -8,6 +8,19 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Added
+
+- **`capydb logs --errors`** folds the window's ERROR/FATAL/PANIC lines into one block per distinct
+  failure (SQLSTATE plus the message with its variable parts normalised), busiest first: count,
+  severity, SQLSTATE, class, whether a retry can help, first/last seen, and the newest occurrence's
+  message, detail, context (which parameter of a batch carried the bad value) and statement. `-o
+  json` returns the API shape (`GET /v1/projects/{id}/logs/errors`, `capydbclient` v1.15.0). Built
+  for the ingest script whose own log said only `Failed query:` while the cell had logged
+  `22008 date/time field value out of range: "1992-10-00"` with the statement, 25 times.
+- **`capydb doctor` reads the cell's recent errors.** A new `recent_errors` check names the busiest
+  error groups of the last 24 h with their SQLSTATE and retry verdict (informational: it passes
+  either way, skips without a linked project or auth) and points at `capydb logs --errors`.
+
 ### Fixed
 
 - **CI on Windows is green again.** `TestValuesAndRemoveKeys` asserted that `RemoveKeys` left an

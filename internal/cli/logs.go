@@ -26,6 +26,7 @@ func (a *app) newLogsCommand() *cobra.Command {
 	var limit int
 	var severity string
 	var follow bool
+	var showErrors bool
 	var search logSearchFlags
 
 	command := &cobra.Command{
@@ -34,6 +35,16 @@ func (a *app) newLogsCommand() *cobra.Command {
 		Long: `Show the project's Postgres log stream: a trailing window by default, or a live tail with
 --follow. Severity is parsed from the log format; filter with --severity (e.g. --severity
 error,fatal). Lines that report a condition carry its SQLSTATE, shown in brackets.
+
+--errors folds the window's ERROR/FATAL/PANIC lines into one line per distinct failure (SQLSTATE
+plus the message with its variable parts normalised), busiest first, with the count, the SQLSTATE
+class, whether a retry can help, and the newest occurrence's statement. A failure marked "not
+retryable" (data, constraint or syntax errors) fails the same way on every attempt: fix the input
+instead of retrying. The window is the newest 500 lines; when it is truncated the counts are lower
+bounds - use --sqlstate to count further back.
+
+  capydb logs --errors                         distinct failures in the last hour
+  capydb logs --errors --hours 24 -o json      the same as JSON, for scripts and agents
 
 --search, --sqlstate, --since and --until search the archived logs of the last 30 days instead,
 newest first:
@@ -61,6 +72,9 @@ continue. Log search is available where CapyDB has enabled it.`,
 			if searching && follow {
 				return usageErrorf("--follow tails the live stream; it cannot be combined with --search, --sqlstate, --since, --until, or --cursor")
 			}
+			if showErrors && (searching || follow || severity != "") {
+				return usageErrorf("--errors reads the trailing window on its own; it cannot be combined with --follow, --severity, or the search flags")
+			}
 			var searchQuery api.ProjectLogSearchQuery
 			if searching {
 				var err error
@@ -79,6 +93,9 @@ continue. Log search is available where CapyDB has enabled it.`,
 			}
 			if searching {
 				return a.searchProjectLogs(cmd, client, project.ID, searchQuery)
+			}
+			if showErrors {
+				return a.showProjectLogErrors(cmd, client, project.ID, hours, limit)
 			}
 
 			logs, err := client.GetProjectLogs(ctx, project.ID, api.ProjectLogsQuery{
@@ -115,6 +132,7 @@ continue. Log search is available where CapyDB has enabled it.`,
 	command.Flags().IntVar(&limit, "limit", 0, "Maximum entries per fetch (server default when omitted, max 500)")
 	command.Flags().StringVar(&severity, "severity", "", "Comma-separated severity filter (debug, log, info, notice, warning, error, fatal, panic, detail)")
 	command.Flags().BoolVarP(&follow, "follow", "f", false, "Keep the stream open and print new entries as they arrive")
+	command.Flags().BoolVar(&showErrors, "errors", false, "Group the window's errors by SQLSTATE and message, with counts, a retry verdict and the failing statement")
 	command.Flags().StringVar(&search.text, "search", "", "Search the archived logs for messages containing this text (case-insensitive)")
 	command.Flags().StringVar(&search.sqlstate, "sqlstate", "", "Search for these SQLSTATE codes or classes, comma-separated (e.g. 42P01 or 23)")
 	command.Flags().StringVar(&search.since, "since", "", "Search window start: RFC 3339 time or a duration back from now (e.g. 12h, 7d)")
@@ -216,6 +234,69 @@ func (a *app) searchProjectLogs(cmd *cobra.Command, client *api.Client, projectI
 		_, _ = fmt.Fprintf(errOut, "More results: re-run with --cursor %s\n", result.NextCursor)
 	}
 	return nil
+}
+
+// showProjectLogErrors prints the window's errors grouped by SQLSTATE and
+// normalised message, busiest first.
+func (a *app) showProjectLogErrors(cmd *cobra.Command, client *api.Client, projectID string, hours, limit int) error {
+	result, err := client.GetProjectLogErrors(cmd.Context(), projectID, hours, limit)
+	if err != nil {
+		return fmt.Errorf("get errors: %w", err)
+	}
+	if a.jsonOutput() {
+		return printJSON(cmd.OutOrStdout(), map[string]any{"errors": result})
+	}
+	out := cmd.OutOrStdout()
+	writeLogErrorGroups(out, result)
+	errOut := cmd.ErrOrStderr()
+	switch {
+	case len(result.Groups) == 0:
+		_, _ = fmt.Fprintf(errOut, "No errors in the last %dh (%d log lines scanned).\n", hours, result.Scanned)
+	case result.Truncated:
+		_, _ = fmt.Fprintf(errOut, "Counts cover the newest %d log lines only; older lines in the window were not read. `capydb logs --sqlstate <code> --since %dh` counts further back.\n", result.Scanned, hours)
+	}
+	return nil
+}
+
+// writeLogErrorGroups renders one group per block: a header line with the
+// count, severity, SQLSTATE, class and retry verdict, the message, and the
+// newest occurrence's statement/context indented beneath it.
+func writeLogErrorGroups(out io.Writer, result api.ProjectLogErrors) {
+	for _, group := range result.Groups {
+		verdict := "not retryable"
+		if group.Retryable {
+			verdict = "retryable"
+		}
+		code := group.SQLState
+		if code == "" {
+			code = "-----"
+		}
+		class := group.Class
+		if class == "" {
+			class = "no sqlstate"
+		}
+		_, _ = fmt.Fprintf(out, "x%-5d %-5s [%s] %s, %s; first %s, last %s",
+			group.Count, strings.ToUpper(group.Severity), code, class, verdict,
+			group.FirstSeen.Local().Format("2006-01-02 15:04:05"), group.LastSeen.Local().Format("2006-01-02 15:04:05"))
+		if group.Variants > 1 {
+			_, _ = fmt.Fprintf(out, "; %d variants", group.Variants)
+		}
+		_, _ = fmt.Fprintln(out)
+		_, _ = fmt.Fprintf(out, "      %s\n", group.Message)
+		if group.Detail != "" {
+			_, _ = fmt.Fprintf(out, "      detail: %s\n", group.Detail)
+		}
+		if group.Context != "" {
+			_, _ = fmt.Fprintf(out, "      context: %s\n", group.Context)
+		}
+		if group.Statement != "" {
+			statement := strings.Join(strings.Fields(group.Statement), " ")
+			if len(statement) > 240 {
+				statement = statement[:240] + "..."
+			}
+			_, _ = fmt.Fprintf(out, "      statement: %s\n", statement)
+		}
+	}
 }
 
 // followProjectLogs tails the log stream by polling the cursor-resume fetch

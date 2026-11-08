@@ -17,6 +17,11 @@ func doctorRoutes(t *testing.T, projectMissing bool) map[string]http.HandlerFunc
 			writeJSON(t, w, map[string]any{"status": "operational", "components": []any{}})
 		},
 		"GET /v1/me": func(w http.ResponseWriter, r *http.Request) { writeViewer(t, w, "org_1") },
+		"GET /v1/projects/prj_1/logs/errors": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(t, w, map[string]any{"errors": map[string]any{
+				"groups": []any{}, "since": "2026-11-07T14:00:00Z", "scanned": 0, "occurrences": 0, "truncated": false,
+			}})
+		},
 		"GET /v1/projects/prj_1/connections": func(w http.ResponseWriter, r *http.Request) {
 			writeJSON(t, w, map[string]any{"connections": map[string]any{
 				"direct_url": "postgres://u:p@demo.db.capydb.dev:5432/demo",

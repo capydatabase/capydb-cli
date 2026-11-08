@@ -3,6 +3,7 @@ package cli
 import (
 	"errors"
 	"fmt"
+	"github.com/capydatabase/capydb-cli/internal/api"
 	"os"
 	"os/exec"
 	"strconv"
@@ -260,6 +261,32 @@ func (a *app) runDoctor(cmd *cobra.Command, fixes []doctorFix) error {
 		}
 	}
 
+	// Recent errors: what the cell logged in the last 24 h, grouped. The one
+	// check that reads the database's side of the story - a script's own log
+	// usually shows the driver's "Failed query" without the SQLSTATE or the
+	// statement. Informational: errors are the application's to judge, so a
+	// non-empty result still passes; the detail names the busiest groups and
+	// whether a retry could ever help.
+	switch {
+	case strings.TrimSpace(linkConfig.ProjectID) == "" || !authValid:
+		checks = append(checks, doctorCheck{Name: "recent_errors", Status: doctorSkip, Detail: "needs a linked project and authentication to read the database log"})
+	default:
+		client, clientErr := a.newAPIClient(a.resolveAPIURL(linkConfig.APIURL), authConfig.APIKey)
+		if clientErr != nil {
+			checks = append(checks, doctorCheck{Name: "recent_errors", Status: doctorSkip, Detail: clientErr.Error()})
+			break
+		}
+		result, errorsErr := client.GetProjectLogErrors(ctx, linkConfig.ProjectID, 24, 0)
+		switch {
+		case errorsErr != nil:
+			checks = append(checks, doctorCheck{Name: "recent_errors", Status: doctorSkip, Detail: "could not read the database log: " + errorsErr.Error()})
+		case len(result.Groups) == 0:
+			checks = append(checks, doctorCheck{Name: "recent_errors", Status: doctorPass, Detail: fmt.Sprintf("no errors in the database log of the last 24h (%d lines scanned)", result.Scanned)})
+		default:
+			checks = append(checks, doctorCheck{Name: "recent_errors", Status: doctorPass, Detail: summarizeRecentErrors(result)})
+		}
+	}
+
 	failed := 0
 	for _, check := range checks {
 		if check.Status == doctorFail {
@@ -304,6 +331,36 @@ func (a *app) runDoctor(cmd *cobra.Command, fixes []doctorFix) error {
 		_, _ = fmt.Fprintln(cmd.OutOrStdout(), "All checks passed.")
 	}
 	return nil
+}
+
+// summarizeRecentErrors names the busiest error groups (at most three) with
+// their SQLSTATE and retry verdict, and points at `capydb logs --errors`.
+func summarizeRecentErrors(result api.ProjectLogErrors) string {
+	var parts []string
+	for i, group := range result.Groups {
+		if i == 3 {
+			break
+		}
+		code := group.SQLState
+		if code == "" {
+			code = "no sqlstate"
+		}
+		verdict := "not retryable"
+		if group.Retryable {
+			verdict = "retryable"
+		}
+		message := strings.Join(strings.Fields(group.Message), " ")
+		if len(message) > 80 {
+			message = message[:80] + "..."
+		}
+		parts = append(parts, fmt.Sprintf("x%d [%s] %s (%s)", group.Count, code, message, verdict))
+	}
+	qualifier := ""
+	if result.Truncated {
+		qualifier = " (newest lines only)"
+	}
+	return fmt.Sprintf("%d distinct error(s), %d occurrence(s) in the last 24h%s: %s; see `capydb logs --errors --hours 24`",
+		len(result.Groups), result.Occurrences, qualifier, strings.Join(parts, "; "))
 }
 
 // intFromRow reads a count column out of a SQL runner row, tolerating the

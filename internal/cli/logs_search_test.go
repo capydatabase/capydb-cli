@@ -112,3 +112,78 @@ func TestLogsSearchRejectsFollowAndBadCodes(t *testing.T) {
 		}
 	}
 }
+
+func TestLogsErrorsGroupsAndVerdicts(t *testing.T) {
+	var query url.Values
+	server := newFakeControlPlane(t, nil, map[string]http.HandlerFunc{
+		"GET /v1/projects/prj_1/logs/errors": func(w http.ResponseWriter, r *http.Request) {
+			query = r.URL.Query()
+			writeJSON(t, w, map[string]any{"errors": map[string]any{
+				"groups": []map[string]any{{
+					"key": "22008:date/time field value out of range: ?", "sqlstate": "22008", "class": "data_exception",
+					"retryable": false, "severity": "error", "count": 25, "variants": 1,
+					"first_seen": "2026-11-08T13:15:18Z", "last_seen": "2026-11-08T14:02:13Z",
+					"message": `date/time field value out of range: "1992-10-00"`,
+					"context": "unnamed portal parameter $2256 = '...'", "statement": "update \"games\" g set\n  release_year = 1",
+					"user": "usr_ludography", "database": "db_ludography",
+				}, {
+					"key": "08006:connection to client lost", "sqlstate": "08006", "class": "connection_exception",
+					"retryable": true, "severity": "fatal", "count": 2, "variants": 1,
+					"first_seen": "2026-11-08T13:17:03Z", "last_seen": "2026-11-08T13:17:03Z",
+					"message": "connection to client lost",
+				}},
+				"since": "2026-11-08T13:00:00Z", "scanned": 500, "occurrences": 27, "truncated": true,
+			}})
+		},
+	})
+	base := []string{"logs", "--project", "prj_1", "--api-url", server.URL, "--api-key", "capy_test"}
+
+	output, err := runCommand(t, t.TempDir(), append(base, "--errors", "--hours", "6")...)
+	if err != nil {
+		t.Fatalf("errors: %v\n%s", err, output)
+	}
+	if query.Get("hours") != "6" {
+		t.Errorf("hours = %q, want 6", query.Get("hours"))
+	}
+	for _, want := range []string{
+		"x25    ERROR [22008] data_exception, not retryable",
+		`date/time field value out of range: "1992-10-00"`,
+		"context: unnamed portal parameter $2256",
+		`statement: update "games" g set release_year = 1`,
+		"x2     FATAL [08006] connection_exception, retryable",
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("output lacks %q:\n%s", want, output)
+		}
+	}
+
+	output, err = runCommand(t, t.TempDir(), append(base, "--errors", "-o", "json")...)
+	if err != nil {
+		t.Fatalf("json: %v\n%s", err, output)
+	}
+	var payload struct {
+		Errors api.ProjectLogErrors `json:"errors"`
+	}
+	if err := json.Unmarshal([]byte(output), &payload); err != nil || len(payload.Errors.Groups) != 2 || !payload.Errors.Truncated || payload.Errors.Groups[1].Retryable != true {
+		t.Fatalf("json = %s (%v)", output, err)
+	}
+
+	if _, err := runCommand(t, t.TempDir(), append(base, "--errors", "--follow")...); err == nil {
+		t.Fatal("--errors with --follow must be a usage error")
+	}
+}
+
+func TestSummarizeRecentErrorsNamesTopGroups(t *testing.T) {
+	summary := summarizeRecentErrors(api.ProjectLogErrors{
+		Groups: []api.ProjectLogErrorGroup{
+			{SQLState: "22008", Count: 25, Message: `date/time field value out of range: "1992-10-00"`},
+			{SQLState: "08006", Count: 2, Message: "connection to client lost", Retryable: true},
+		},
+		Occurrences: 27, Truncated: true,
+	})
+	for _, want := range []string{"2 distinct error(s), 27 occurrence(s)", "(newest lines only)", "x25 [22008]", "(not retryable)", "x2 [08006]", "(retryable)", "capydb logs --errors --hours 24"} {
+		if !strings.Contains(summary, want) {
+			t.Errorf("summary lacks %q: %s", want, summary)
+		}
+	}
+}

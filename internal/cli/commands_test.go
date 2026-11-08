@@ -523,6 +523,15 @@ func TestDoctorPassesWithAuthAndLink(t *testing.T) {
 					"state": "ready",
 				},
 			})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/projects/project_doc/logs/errors":
+			writeJSON(t, w, map[string]any{"errors": map[string]any{
+				"groups": []map[string]any{{
+					"key": "22008:x", "sqlstate": "22008", "class": "data_exception", "retryable": false, "severity": "error",
+					"count": 3, "variants": 1, "first_seen": "2026-11-08T13:15:18Z", "last_seen": "2026-11-08T14:02:13Z",
+					"message": `date/time field value out of range: "1992-10-00"`,
+				}},
+				"since": "2026-11-07T14:00:00Z", "scanned": 40, "occurrences": 3, "truncated": false,
+			}})
 		default:
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
@@ -544,7 +553,7 @@ func TestDoctorPassesWithAuthAndLink(t *testing.T) {
 		"--api-url", server.URL,
 		"--api-key", "capy_test_key",
 	)
-	for _, expected := range []string{"[pass] config", "[pass] api", "[pass] auth", "[pass] project_link"} {
+	for _, expected := range []string{"[pass] config", "[pass] api", "[pass] auth", "[pass] project_link", "[pass] recent_errors: 1 distinct error(s), 3 occurrence(s) in the last 24h: x3 [22008]"} {
 		if !strings.Contains(output, expected) {
 			t.Fatalf("doctor output missing %q:\n%s", expected, output)
 		}

@@ -147,11 +147,20 @@ func (a *app) newEphemeralCreateCommand() *cobra.Command {
 				}
 			}
 
-			created, err := createClient.CreateEphemeralDatabase(ctx, api.EphemeralDatabaseCreateRequest{
+			createRequest := api.EphemeralDatabaseCreateRequest{
 				Name:            strings.TrimSpace(name),
 				PostgresVersion: strings.TrimSpace(postgresVersion),
 				Region:          strings.TrimSpace(region),
-			})
+			}
+			created, err := createClient.CreateEphemeralDatabase(ctx, createRequest)
+			// No account is needed, so a saved key the API refuses (revoked, expired) must not
+			// stop the create: retry once without it, as the MCP client does.
+			var refused *api.APIError
+			if err != nil && createClient != client && errors.As(err, &refused) &&
+				(refused.StatusCode == http.StatusUnauthorized || refused.StatusCode == http.StatusForbidden) {
+				_, _ = fmt.Fprintln(cmd.ErrOrStderr(), "The configured API key was refused; creating the ephemeral database without an account instead.")
+				created, err = client.CreateEphemeralDatabase(ctx, createRequest)
+			}
 			if err != nil {
 				// The create answers 404 only when the deployment has the feature off.
 				if capydbclient.IsNotFound(err) {

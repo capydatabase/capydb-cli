@@ -27,6 +27,7 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ### Fixed
 
+- `capydb ephemeral create` no longer fails when the saved API key has been revoked or has expired: when the API refuses the key (401/403) the create is retried once without it, with a note on stderr, the way the MCP server already did.
 - `capydb seed` also points `DATABASE_URL_UNPOOLED`, `POSTGRES_URL_NON_POOLING` and `POSTGRES_PRISMA_URL` at the target. A seed script that read the unpooled URL the Vercel and Netlify integrations push could otherwise load production from `.env` while seeding a preview.
 - **CI on Windows is green again.** `TestValuesAndRemoveKeys` asserted that `RemoveKeys` left an
   `.env` file at mode `0600`, but Windows has no POSIX mode bits and reports `0666` for every

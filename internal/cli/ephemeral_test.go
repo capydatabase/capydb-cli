@@ -392,3 +392,49 @@ func TestEphemeralCreateSendsAConfiguredAPIKey(t *testing.T) {
 		t.Fatalf("create Authorization = %q, want the configured key", createAuth)
 	}
 }
+
+// A saved key that has since been revoked or expired must not break the account-less create:
+// the API refuses any presented credential it cannot verify, so the CLI retries once without it,
+// as the MCP client does.
+func TestEphemeralCreateFallsBackToAnonymousOnARefusedKey(t *testing.T) {
+	isolateUserConfig(t)
+	t.Setenv("CAPYDB_API_KEY", "capy_live_revoked")
+	cwd := t.TempDir()
+	expiresAt := time.Now().Add(72 * time.Hour).UTC().Truncate(time.Second)
+
+	var createAuths []string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/ephemeral-databases":
+			auth := r.Header.Get("Authorization")
+			createAuths = append(createAuths, auth)
+			if auth != "" {
+				w.WriteHeader(http.StatusUnauthorized)
+				writeJSON(t, w, map[string]any{"error": "invalid api key"})
+				return
+			}
+			w.WriteHeader(http.StatusCreated)
+			writeJSON(t, w, map[string]any{
+				"claim_token":        testEphemeralToken,
+				"claim_url":          "https://capydb.dev/dashboard/claim/" + testEphemeralProjectID,
+				"ephemeral_database": ephemeralDatabaseJSON("provisioning", expiresAt),
+			})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/ephemeral-databases/"+testEphemeralProjectID:
+			writeJSON(t, w, map[string]any{
+				"connections":        map[string]any{"direct_url": testEphemeralDirectURL, "pooled_url": testEphemeralPooledURL, "username": "usr"},
+				"ephemeral_database": ephemeralDatabaseJSON("ready", expiresAt),
+			})
+		default:
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer server.Close()
+
+	output, err := runCommand(t, cwd, "--api-url", server.URL, "ephemeral", "create", "--no-env")
+	if err != nil {
+		t.Fatalf("ephemeral create with a refused key: %v\n%s", err, output)
+	}
+	if len(createAuths) != 2 || createAuths[0] != "Bearer capy_live_revoked" || createAuths[1] != "" {
+		t.Fatalf("create Authorization headers = %q, want the key then none", createAuths)
+	}
+}

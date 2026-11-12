@@ -124,6 +124,30 @@ func TestDoctorFixDrizzleConfigIsIdempotent(t *testing.T) {
 	_ = os.Remove(filepath.Join(dir, "drizzle.config.ts"))
 }
 
+// TestDoctorFixPrismaDirectURLMatchesTheLinter: the fix writes the name its own
+// linter asks for, DATABASE_DIRECT_URL, which capydb link / env pull write and
+// the Vercel, Netlify and Cloudflare integrations push (FG-4).
+func TestDoctorFixPrismaDirectURLMatchesTheLinter(t *testing.T) {
+	t.Setenv("CI", "true")
+	isolateUserConfig(t)
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "prisma"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, filepath.Join(dir, ".env"), "DATABASE_URL=postgres://u:p@db.capydb.dev:6432/app\nDATABASE_DIRECT_URL=postgres://u:p@db.capydb.dev:5432/app\n")
+	writeTestFile(t, filepath.Join(dir, "prisma", "schema.prisma"), "datasource db {\n  provider = \"postgresql\"\n  url      = env(\"DATABASE_URL\")\n}\n")
+	fixes := (&app{cwd: dir}).fixConfigFindings(mustLint(t, dir))
+	got := readTestFile(t, filepath.Join(dir, "prisma", "schema.prisma"))
+	if !strings.Contains(got, "  url      = env(\"DATABASE_URL\")\n  directUrl = env(\"DATABASE_DIRECT_URL\")\n") {
+		t.Fatalf("directUrl not added as the linter asks:\n%s\n%+v", got, fixes)
+	}
+	for _, finding := range mustLint(t, dir) {
+		if finding.Rule == "prisma_missing_direct_url" {
+			t.Fatalf("the linter still flags the fixed schema: %+v", finding)
+		}
+	}
+}
+
 func mustLint(t *testing.T, dir string) []configlint.Finding {
 	t.Helper()
 	findings, err := configlint.Run(dir)

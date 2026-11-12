@@ -282,7 +282,9 @@ func (a *app) fixConfigFindings(findings []configlint.Finding) []doctorFix {
 					return content, ""
 				}
 				indent := content[match[2]:match[3]]
-				return content[:match[1]] + indent + `directUrl = env("DIRECT_URL")` + "\n" + content[match[1]:], `added directUrl = env("DIRECT_URL") (written by capydb link / env pull)`
+				// The name the linter asks for: capydb link / env pull write it, and
+				// the Vercel, Netlify and Cloudflare integrations push it.
+				return content[:match[1]] + indent + `directUrl = env("DATABASE_DIRECT_URL")` + "\n" + content[match[1]:], `added directUrl = env("DATABASE_DIRECT_URL") (written by capydb link / env pull, pushed by the deployment integrations)`
 			}
 		default:
 			detail := fmt.Sprintf("%s [%s] %s", finding.File, finding.Rule, finding.Message)

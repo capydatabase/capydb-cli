@@ -154,17 +154,12 @@ or ` + "`capydb cloudflare create-database`" + `.`,
 			if err != nil {
 				return err
 			}
-			job, err := client.SyncProjectIntegrationEnv(ctx, project.ID, provider)
+			job, err := queueIntegrationSync(ctx, client, project, provider)
 			if err != nil {
-				if apiErr, ok := errors.AsType[*api.APIError](err); ok {
-					switch apiErr.StatusCode {
-					case http.StatusNotFound:
-						return notFoundErrorf("project %s has no %s integration to sync (%v); connect it first", project.Name, provider, err)
-					case http.StatusConflict:
-						return fmt.Errorf("a %s env push for project %s is already queued or running; wait for it (see `capydb jobs list`): %w", provider, project.Name, err)
-					}
+				if apiErr, ok := errors.AsType[*api.APIError](err); ok && apiErr.StatusCode == http.StatusNotFound {
+					return notFoundErrorf("project %s has no %s integration to sync (%v); connect it first", project.Name, provider, err)
 				}
-				return fmt.Errorf("sync %s env: %w", provider, err)
+				return err
 			}
 			if !a.jsonOutput() {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Queued %s env push for project %s\n", provider, project.Name)
@@ -175,6 +170,26 @@ or ` + "`capydb cloudflare create-database`" + `.`,
 	command.Flags().StringVar(&projectRef, "project", "", "Project id, slug, or name")
 	addWaitFlags(command, &wait, &waitTimeout, "env push")
 	return command
+}
+
+// queueIntegrationSync asks the control plane to re-push the connection env
+// vars to provider with the token it stored at connect time. A 404 (nothing
+// connected) comes back as the API error for the caller to word; a 409 (a push
+// already queued or running) is explained here.
+func queueIntegrationSync(ctx context.Context, client *api.Client, project api.Project, provider string) (api.Job, error) {
+	job, err := client.SyncProjectIntegrationEnv(ctx, project.ID, provider)
+	if err == nil {
+		return job, nil
+	}
+	if apiErr, ok := errors.AsType[*api.APIError](err); ok {
+		switch apiErr.StatusCode {
+		case http.StatusNotFound:
+			return api.Job{}, err
+		case http.StatusConflict:
+			return api.Job{}, fmt.Errorf("a %s env push for project %s is already queued or running; wait for it (see `capydb jobs list`): %w", provider, project.Name, err)
+		}
+	}
+	return api.Job{}, fmt.Errorf("sync %s env: %w", provider, err)
 }
 
 func (a *app) resolveIntegrationEnvPlan(ctx context.Context, client *api.Client, projectRef string) (api.Project, projectdetect.EnvPlan, error) {

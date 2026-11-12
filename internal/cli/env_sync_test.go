@@ -73,14 +73,71 @@ func TestEnvSyncRequiresTokenAndTarget(t *testing.T) {
 	isolateUserConfig(t)
 	t.Setenv("VERCEL_TOKEN", "")
 	t.Setenv("NETLIFY_AUTH_TOKEN", "")
-	for _, args := range [][]string{
-		{"env", "sync", "vercel", "--vercel-project", "p"},
-		{"env", "sync", "vercel", "--token", "t"},
-		{"env", "sync", "netlify", "--site", "s"},
-		{"env", "sync", "netlify", "--token", "t"},
+	// Not connected: the stored-token sync answers 404, so a token is required.
+	notConnected := func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		writeJSON(t, w, map[string]any{"error": "not found"})
+	}
+	server := newFakeControlPlane(t, nil, map[string]http.HandlerFunc{
+		"POST /v1/projects/prj_1/integrations/vercel/sync":  notConnected,
+		"POST /v1/projects/prj_1/integrations/netlify/sync": notConnected,
+	})
+	for _, tt := range []struct {
+		args []string
+		want string
+	}{
+		{args: []string{"env", "sync", "vercel", "--vercel-project", "p"}, want: "a Vercel token is required"},
+		{args: []string{"env", "sync", "vercel", "--token", "t"}, want: "no Vercel project"},
+		{args: []string{"env", "sync", "netlify", "--site", "s"}, want: "a Netlify token is required"},
+		{args: []string{"env", "sync", "netlify", "--token", "t"}, want: "no Netlify site"},
 	} {
-		if _, err := runCommand(t, t.TempDir(), append(args, "--api-key", "k", "--api-url", "http://127.0.0.1:1")...); err == nil {
-			t.Errorf("%v accepted", args)
+		_, err := runCommand(t, t.TempDir(), append(tt.args, "--project", "prj_1", "--api-key", "k", "--api-url", server.URL)...)
+		if err == nil || !strings.Contains(err.Error(), tt.want) {
+			t.Errorf("%v: err = %v, want %q", tt.args, err, tt.want)
 		}
+	}
+}
+
+// TestEnvSyncWithoutATokenResyncsAConnectedProject: re-running env sync to
+// re-push used to reconnect, registering a new deploy hook each time (FG-6).
+// Without a token, on a connected project, it now queues the stored-token sync
+// instead; on an unconnected one (404) the token is still required, and so it
+// is when --preview-branches asks to change the connection (O-07).
+func TestEnvSyncWithoutATokenResyncsAConnectedProject(t *testing.T) {
+	t.Setenv("CI", "true")
+	isolateUserConfig(t)
+	t.Setenv("VERCEL_TOKEN", "")
+	t.Setenv("NETLIFY_AUTH_TOKEN", "")
+	connected := true
+	syncs := 0
+	server := newFakeControlPlane(t, nil, map[string]http.HandlerFunc{
+		"POST /v1/projects/prj_1/integrations/netlify/sync": func(w http.ResponseWriter, r *http.Request) {
+			if !connected {
+				w.WriteHeader(http.StatusNotFound)
+				writeJSON(t, w, map[string]any{"error": "not found"})
+				return
+			}
+			syncs++
+			w.WriteHeader(http.StatusAccepted)
+			writeJSON(t, w, map[string]any{"job": map[string]any{"id": "job_s", "state": "queued", "type": "integration.sync_env"}})
+		},
+		"GET /v1/jobs/job_s": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(t, w, map[string]any{"job": map[string]any{"id": "job_s", "state": "completed", "type": "integration.sync_env"}})
+		},
+	})
+	args := []string{"env", "sync", "netlify", "--project", "prj_1", "--api-url", server.URL, "--api-key", "capy_test"}
+
+	output, err := runCommand(t, t.TempDir(), args...)
+	if err != nil || syncs != 1 || !strings.Contains(output, "already connected to netlify; pushing env vars again with the stored token") {
+		t.Fatalf("resync: err=%v syncs=%d\n%s", err, syncs, output)
+	}
+
+	if _, err := runCommand(t, t.TempDir(), append(args, "--preview-branches")...); err == nil || !strings.Contains(err.Error(), "a Netlify token is required") || syncs != 1 {
+		t.Fatalf("--preview-branches without a token: err=%v syncs=%d", err, syncs)
+	}
+
+	connected = false
+	if _, err := runCommand(t, t.TempDir(), args...); err == nil || !strings.Contains(err.Error(), "a Netlify token is required") {
+		t.Fatalf("unconnected project: err = %v, want the token requirement", err)
 	}
 }

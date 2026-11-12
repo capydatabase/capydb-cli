@@ -10,6 +10,7 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ### Changed
 
+- **`capydb env sync vercel|netlify` without a token re-pushes a connected project** through the stored token (what `capydb integrations sync` does) instead of asking for a token and reconnecting. Running it with a token still reconnects - replacing the stored token, and now also deleting the previous deploy hook (control plane change). The help points at `capydb integrations sync` for re-pushes. `--preview-branches` without a token is refused, since it changes the connection.
 - Go 1.27.4 (`go` directive and the `golang:1.27.4-alpine` build image); pgx 5.13.0, x/sync 0.25.0, x/text 0.44.0. No behaviour change.
 
 ### Added

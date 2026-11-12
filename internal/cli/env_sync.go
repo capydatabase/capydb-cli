@@ -2,7 +2,9 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,7 +21,9 @@ import (
 // integration rather than calling Vercel/Netlify from the CLI: the token is
 // stored encrypted, so the variables are pushed again on every credential
 // rotation (and per branch with --preview-branches) instead of going stale
-// after a one-off push. Re-running it re-pushes and replaces the stored token.
+// after a one-off push. Re-running it with a token reconnects (replacing the
+// stored token, and the deploy hook with it); without one, on a project that is
+// already connected, it re-pushes through `capydb integrations sync`.
 
 type envSyncOptions struct {
 	previewBranches bool
@@ -42,7 +46,9 @@ func (a *app) withEnvSync(envCommand *cobra.Command) *cobra.Command {
 		Long: "Connects the project to a Vercel project (`capydb env sync vercel`) or Netlify site (`capydb env sync netlify`) " +
 			"and pushes DATABASE_URL and the other connection variables to it. The token is stored encrypted by CapyDB, so the " +
 			"variables are pushed again whenever the credentials rotate; --preview-branches also gives each preview deployment " +
-			"its own preview database. Run it again to re-push or to replace the token.",
+			"its own preview database. To push the variables again, run `capydb integrations sync vercel|netlify` - or this " +
+			"command without a token, which does the same on a connected project. Running it with a token reconnects: it " +
+			"replaces the stored token and the deploy hook.",
 	}
 	sync.AddCommand(a.newEnvSyncVercelCommand(), a.newEnvSyncNetlifyCommand())
 	envCommand.AddCommand(sync)
@@ -51,7 +57,7 @@ func (a *app) withEnvSync(envCommand *cobra.Command) *cobra.Command {
 
 func addEnvSyncFlags(command *cobra.Command, options *envSyncOptions, tokenEnv string) {
 	command.Flags().StringVar(&options.projectRef, "project", "", "Project id, slug, or name")
-	command.Flags().StringVar(&options.token, "token", "", "API token (defaults to $"+tokenEnv+"); stored encrypted by CapyDB")
+	command.Flags().StringVar(&options.token, "token", "", "API token (defaults to $"+tokenEnv+"); stored encrypted by CapyDB. Without one, a connected project is re-pushed with the stored token")
 	command.Flags().BoolVar(&options.previewBranches, "preview-branches", false, "Also create a preview database per branch deployment")
 	command.Flags().BoolVar(&options.wait, "wait", true, "Wait for the first push to finish")
 	command.Flags().DurationVar(&options.waitTimeout, "wait-timeout", 5*time.Minute, "Maximum time to wait for the push")
@@ -68,7 +74,8 @@ func (a *app) newEnvSyncVercelCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			token := firstNonEmpty(options.token, os.Getenv("VERCEL_TOKEN"))
 			if token == "" {
-				return usageErrorf("a Vercel token is required: pass --token or set VERCEL_TOKEN (create one at vercel.com/account/tokens)")
+				return a.resyncWithStoredToken(cmd, options, "vercel",
+					usageErrorf("a Vercel token is required: pass --token or set VERCEL_TOKEN (create one at vercel.com/account/tokens)"))
 			}
 			linked := readVercelLink(a.linkedAppDirs())
 			vercelProject := firstNonEmpty(options.vercelProject, linked.ProjectID)
@@ -105,7 +112,8 @@ func (a *app) newEnvSyncNetlifyCommand() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			token := firstNonEmpty(options.token, os.Getenv("NETLIFY_AUTH_TOKEN"))
 			if token == "" {
-				return usageErrorf("a Netlify token is required: pass --token or set NETLIFY_AUTH_TOKEN (a personal access token from app.netlify.com/user/applications)")
+				return a.resyncWithStoredToken(cmd, options, "netlify",
+					usageErrorf("a Netlify token is required: pass --token or set NETLIFY_AUTH_TOKEN (a personal access token from app.netlify.com/user/applications)"))
 			}
 			site := firstNonEmpty(options.site, readNetlifySiteID(a.linkedAppDirs()))
 			if site == "" {
@@ -123,6 +131,54 @@ func (a *app) newEnvSyncNetlifyCommand() *cobra.Command {
 	addEnvSyncFlags(command, &options, "NETLIFY_AUTH_TOKEN")
 	command.Flags().StringVar(&options.site, "site", "", "Netlify site id (defaults to .netlify/state.json)")
 	return command
+}
+
+// resyncWithStoredToken handles `env sync` without a token. On a project that
+// is already connected to provider it re-pushes the variables with the token
+// CapyDB stored (what `capydb integrations sync` does) instead of reconnecting;
+// otherwise, or when --preview-branches asks to change the connection, it
+// returns tokenRequired.
+func (a *app) resyncWithStoredToken(cmd *cobra.Command, options envSyncOptions, provider string, tokenRequired error) error {
+	if cmd.Flags().Changed("preview-branches") {
+		return tokenRequired
+	}
+	ctx := cmd.Context()
+	client, _, err := a.resolveClient(true, a.linkedProjectAPIURL())
+	if err != nil {
+		return err
+	}
+	project, err := a.resolveProject(ctx, client, options.projectRef)
+	if err != nil {
+		return err
+	}
+	job, err := queueIntegrationSync(ctx, client, project, provider)
+	if err != nil {
+		if apiErr, ok := errors.AsType[*api.APIError](err); ok && apiErr.StatusCode == http.StatusNotFound {
+			return tokenRequired
+		}
+		return err
+	}
+
+	progress := cmd.OutOrStdout()
+	if a.jsonOutput() {
+		progress = cmd.ErrOrStderr()
+	}
+	_, _ = fmt.Fprintf(progress, "Project %s is already connected to %s; pushing env vars again with the stored token (job %s)\n", project.Name, provider, job.ID)
+	if options.wait && job.ID != "" {
+		if job, err = waitForJob(ctx, cmd.ErrOrStderr(), client, job.ID, options.waitTimeout); err != nil {
+			return err
+		}
+		if err := ensureCompletedJob(job, "env sync"); err != nil {
+			return err
+		}
+	}
+	if a.jsonOutput() {
+		return printJSON(cmd.OutOrStdout(), map[string]any{"job": job})
+	}
+	if options.wait {
+		_, _ = fmt.Fprintln(progress, "Env vars pushed. Redeploy for running deployments to pick them up.")
+	}
+	return nil
 }
 
 func (a *app) runEnvSync(cmd *cobra.Command, options envSyncOptions, destination string, connect func(*api.Client, string) (api.ProjectIntegration, api.Job, error)) error {

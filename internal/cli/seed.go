@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -175,8 +176,10 @@ func (a *app) newSeedCommand() *cobra.Command {
 
 Production is guarded: seeding a production project needs --confirm-production (or typing the
 project name at the prompt), and creates a restore point first so the seed can be undone with
-` + "`capydb restore --restore-point <id>`" + ` (skip with --no-restore-point). Previews and
-non_production projects are seeded without asking. --dry-run shows what would run.`,
+` + "`capydb restore --restore-point <id>`" + ` (skip with --no-restore-point). On the Vibe plan,
+which restores from backups rather than to a point in time, the seed takes a backup first, waits
+for it, and pins the restore point to that backup. Previews and non_production projects are
+seeded without asking. --dry-run shows what would run.`,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
@@ -239,16 +242,12 @@ non_production projects are seeded without asking. --dry-run shows what would ru
 					return usageErrorf("refusing to seed production project %s without confirmation: pass --confirm-production, seed a preview (--preview), or mark the project non_production", target.project.Name)
 				}
 				if !noRestorePoint {
-					point, err := client.CreateRestorePoint(ctx, target.project.ID, api.CreateRestorePointRequest{
-						Kind:  "pitr",
-						Label: "before capydb seed " + time.Now().UTC().Format("2006-01-02T15:04:05Z"),
-						Note:  "created by capydb seed (" + what + ")",
-					})
+					point, undo, err := createSeedRestorePoint(ctx, progress, cmd.ErrOrStderr(), client, target.project, what)
 					if err != nil {
 						return fmt.Errorf("create restore point before seeding (pass --no-restore-point to seed without one): %w", err)
 					}
 					restorePoint = &point
-					_, _ = fmt.Fprintf(progress, "Created restore point %s; undo the seed with `capydb restore --restore-point %s`.\n", point.ID, point.ID)
+					_, _ = fmt.Fprintf(progress, "Created restore point %s; undo the seed with `%s`.\n", point.ID, undo)
 				}
 			}
 
@@ -293,6 +292,74 @@ non_production projects are seeded without asking. --dry-run shows what would ru
 	command.Flags().BoolVar(&noRestorePoint, "no-restore-point", false, "Do not create a restore point before seeding a production project")
 	command.Flags().BoolVar(&dryRun, "dry-run", false, "Show what would run and against which database, without running it")
 	return command
+}
+
+// seedBackupWaitTimeout bounds the wait for the backup a seed on the Vibe plan
+// takes first.
+const seedBackupWaitTimeout = 30 * time.Minute
+
+// createSeedRestorePoint pins where a production seed can be undone from and
+// returns the point plus the restore command that undoes the seed. Plans with
+// point-in-time recovery pin the current instant (kind pitr), which costs
+// nothing. Vibe restores from backups only - the API refuses a pitr restore
+// there - so on Vibe the seed takes a backup first, waits for it, and pins the
+// restore point to that backup (kind backup). A backup whose restore
+// verification did not finish needs --allow-unverified to restore from, so the
+// printed command carries it then.
+func createSeedRestorePoint(ctx context.Context, progress, errOut io.Writer, client *api.Client, project api.Project, what string) (api.RestorePoint, string, error) {
+	label := "before capydb seed " + time.Now().UTC().Format("2006-01-02T15:04:05Z")
+	request := api.CreateRestorePointRequest{
+		Kind:  "pitr",
+		Label: label,
+		Note:  "created by capydb seed (" + what + ")",
+	}
+	verified := true
+	if project.Plan == "vibe" {
+		_, _ = fmt.Fprintf(progress, "Backing up %s before the seed (the Vibe plan restores from backups, not to a point in time)\n", project.Name)
+		backup, err := takeLabelledBackup(ctx, errOut, client, project.ID, label)
+		if err != nil {
+			return api.RestorePoint{}, "", err
+		}
+		request.Kind = "backup"
+		request.BackupKey = backup.BackupKey
+		verified = backup.VerificationState == "verified"
+	}
+	point, err := client.CreateRestorePoint(ctx, project.ID, request)
+	if err != nil {
+		return api.RestorePoint{}, "", err
+	}
+	undo := "capydb restore --restore-point " + point.ID
+	if !verified {
+		undo += " --allow-unverified"
+	}
+	return point, undo, nil
+}
+
+// takeLabelledBackup queues a backup under label, waits for it, and returns the
+// backup it recorded. The job does not carry the backup's key, so the backup is
+// found again by its label, which the caller makes unique.
+func takeLabelledBackup(ctx context.Context, errOut io.Writer, client *api.Client, projectID, label string) (api.Backup, error) {
+	job, err := client.CreateBackup(ctx, projectID, label)
+	if err != nil {
+		return api.Backup{}, fmt.Errorf("queue backup: %w", err)
+	}
+	job, err = waitForJob(ctx, errOut, client, job.ID, seedBackupWaitTimeout)
+	if err != nil {
+		return api.Backup{}, err
+	}
+	if err := ensureCompletedJob(job, "backup "+job.ID); err != nil {
+		return api.Backup{}, err
+	}
+	backups, err := client.ListBackups(ctx, projectID)
+	if err != nil {
+		return api.Backup{}, fmt.Errorf("list backups: %w", err)
+	}
+	for _, backup := range backups {
+		if backup.Label == label {
+			return backup, nil
+		}
+	}
+	return api.Backup{}, fmt.Errorf("backup job %s completed but no backup labelled %q is listed", job.ID, label)
 }
 
 func (a *app) resolveSeedTarget(ctx context.Context, client *api.Client, previewID, projectRef string) (seedTarget, error) {

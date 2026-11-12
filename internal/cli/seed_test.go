@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -118,6 +119,115 @@ func TestSeedProductionTakesARestorePointAndInjectsTheDirectURL(t *testing.T) {
 	}
 	if restorePoints != 1 || !strings.Contains(output, "capydb restore --restore-point rp_1") {
 		t.Fatalf("restore points = %d\n%s", restorePoints, output)
+	}
+}
+
+// TestSeedOnVibePinsTheRestorePointToABackup: Vibe restores from backups only
+// (the API refuses a pitr restore there), so a production seed on Vibe takes a
+// backup first, waits for it, and pins the restore point to it - the printed
+// undo has to work on every plan (FG-1 / H-11).
+func TestSeedOnVibePinsTheRestorePointToABackup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
+	}
+	t.Setenv("CI", "true")
+	isolateUserConfig(t)
+
+	for _, tt := range []struct {
+		name         string
+		verification string
+		wantUndo     string
+	}{
+		{name: "verified backup", verification: "verified", wantUndo: "`capydb restore --restore-point rp_9`"},
+		// A verify skipped for space or time leaves the backup pending; restoring
+		// from it needs the explicit acknowledgement.
+		{name: "unverified backup", verification: "pending", wantUndo: "`capydb restore --restore-point rp_9 --allow-unverified`"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			var backupLabel string
+			var calls []string
+			routes := map[string]http.HandlerFunc{
+				"GET /v1/projects/prj_1/connections": func(w http.ResponseWriter, r *http.Request) {
+					writeJSON(t, w, map[string]any{"connections": map[string]any{"direct_url": "postgres://u:p@db.example:5432/demo"}})
+				},
+				"POST /v1/projects/prj_1/backups": func(w http.ResponseWriter, r *http.Request) {
+					calls = append(calls, "backup")
+					var body map[string]string
+					_ = json.NewDecoder(r.Body).Decode(&body)
+					backupLabel = body["label"]
+					w.WriteHeader(http.StatusAccepted)
+					writeJSON(t, w, map[string]any{"job": map[string]any{"id": "job_b", "state": "pending", "type": "project.backup"}})
+				},
+				"GET /v1/jobs/job_b": func(w http.ResponseWriter, r *http.Request) {
+					calls = append(calls, "wait")
+					writeJSON(t, w, map[string]any{"job": map[string]any{"id": "job_b", "state": "completed", "type": "project.backup"}})
+				},
+				"GET /v1/projects/prj_1/backups": func(w http.ResponseWriter, r *http.Request) {
+					writeJSON(t, w, map[string]any{"backups": []any{
+						map[string]any{"id": "bk_old", "backup_key": "key-old", "label": "nightly", "state": "completed", "verification_state": "verified"},
+						map[string]any{"id": "bk_seed", "backup_key": "key-seed", "label": backupLabel, "state": "completed", "verification_state": tt.verification},
+					}})
+				},
+				"POST /v1/projects/prj_1/restore-points": func(w http.ResponseWriter, r *http.Request) {
+					calls = append(calls, "restore-point")
+					var body map[string]any
+					_ = json.NewDecoder(r.Body).Decode(&body)
+					if body["kind"] != "backup" || body["backup_key"] != "key-seed" || body["label"] != backupLabel {
+						t.Errorf("restore point request = %+v, want kind backup pinned to key-seed under %q", body, backupLabel)
+					}
+					w.WriteHeader(http.StatusCreated)
+					writeJSON(t, w, map[string]any{"restore_point": map[string]any{"id": "rp_9", "kind": "backup", "label": body["label"]}})
+				},
+			}
+			server := newFakeControlPlane(t, map[string]any{"environment": "production", "plan": "vibe"}, routes)
+			dir := t.TempDir()
+
+			output, err := runCommand(t, dir, "seed", "--run", "touch ran", "--confirm-production", "--project", "prj_1", "--api-url", server.URL, "--api-key", "capy_test")
+			if err != nil {
+				t.Fatalf("seed: %v\n%s", err, output)
+			}
+			if !strings.HasPrefix(backupLabel, "before capydb seed") {
+				t.Fatalf("backup label = %q", backupLabel)
+			}
+			if want := []string{"backup", "wait", "restore-point"}; !slices.Equal(calls, want) {
+				t.Fatalf("calls = %v, want %v (the backup must finish before the restore point and the seed)", calls, want)
+			}
+			if !fileExists(filepath.Join(dir, "ran")) || !strings.Contains(output, tt.wantUndo) {
+				t.Fatalf("seed did not run or the undo is not %s:\n%s", tt.wantUndo, output)
+			}
+		})
+	}
+}
+
+// TestSeedOnVibeStopsWhenTheBackupFails: no restore point and no seed when the
+// backup taken first does not complete.
+func TestSeedOnVibeStopsWhenTheBackupFails(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("uses sh")
+	}
+	t.Setenv("CI", "true")
+	isolateUserConfig(t)
+	routes := map[string]http.HandlerFunc{
+		"GET /v1/projects/prj_1/connections": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(t, w, map[string]any{"connections": map[string]any{"direct_url": "postgres://u:p@db.example:5432/demo"}})
+		},
+		"POST /v1/projects/prj_1/backups": func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusAccepted)
+			writeJSON(t, w, map[string]any{"job": map[string]any{"id": "job_b", "state": "pending"}})
+		},
+		"GET /v1/jobs/job_b": func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(t, w, map[string]any{"job": map[string]any{"id": "job_b", "state": "failed", "error": "backup failed"}})
+		},
+	}
+	server := newFakeControlPlane(t, map[string]any{"environment": "production", "plan": "vibe"}, routes)
+	dir := t.TempDir()
+
+	output, err := runCommand(t, dir, "seed", "--run", "touch ran", "--confirm-production", "--project", "prj_1", "--api-url", server.URL, "--api-key", "capy_test")
+	if err == nil || !strings.Contains(err.Error(), "--no-restore-point") {
+		t.Fatalf("err = %v, want the backup failure with the --no-restore-point hint\n%s", err, output)
+	}
+	if fileExists(filepath.Join(dir, "ran")) {
+		t.Fatal("the seed ran although the backup before it failed")
 	}
 }
 

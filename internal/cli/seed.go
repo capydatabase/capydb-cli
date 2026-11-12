@@ -119,6 +119,10 @@ func seedEnv(base []string, directURL string, extraNames ...string) []string {
 	names := map[string]bool{
 		"DATABASE_URL": true, "DATABASE_DIRECT_URL": true, "DATABASE_POOL_URL": true,
 		"DIRECT_URL": true, "CAPYDB_DATABASE_URL": true, "POSTGRES_URL": true,
+		// What the Vercel and Netlify integrations push and `vercel env pull` writes, plus the
+		// Vercel Postgres names many templates read: a .env holding production under one of
+		// these must not leak past the override.
+		"DATABASE_URL_UNPOOLED": true, "POSTGRES_URL_NON_POOLING": true, "POSTGRES_PRISMA_URL": true,
 	}
 	for _, name := range extraNames {
 		if strings.TrimSpace(name) != "" {

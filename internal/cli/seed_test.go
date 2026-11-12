@@ -40,7 +40,7 @@ func TestDetectSeedPlanOrder(t *testing.T) {
 }
 
 func TestSeedEnvPointsEveryNameAtTheTarget(t *testing.T) {
-	env := seedEnv([]string{"PATH=/bin", "DATABASE_URL=postgres://old", "MY_DB=postgres://old"}, "postgres://new", "MY_DB")
+	env := seedEnv([]string{"PATH=/bin", "DATABASE_URL=postgres://old", "DATABASE_URL_UNPOOLED=postgres://prod", "MY_DB=postgres://old"}, "postgres://new", "MY_DB")
 	values := map[string]string{}
 	for _, entry := range env {
 		key, value, _ := strings.Cut(entry, "=")
@@ -49,7 +49,9 @@ func TestSeedEnvPointsEveryNameAtTheTarget(t *testing.T) {
 		}
 		values[key] = value
 	}
-	for _, name := range []string{"DATABASE_URL", "DATABASE_DIRECT_URL", "DIRECT_URL", "DATABASE_POOL_URL", "CAPYDB_DATABASE_URL", "MY_DB"} {
+	// DATABASE_URL_UNPOOLED is what the Vercel and Netlify integrations push (and `vercel env
+	// pull` writes); the POSTGRES_* pair is the Vercel Postgres naming many templates read.
+	for _, name := range []string{"DATABASE_URL", "DATABASE_DIRECT_URL", "DIRECT_URL", "DATABASE_POOL_URL", "CAPYDB_DATABASE_URL", "DATABASE_URL_UNPOOLED", "POSTGRES_URL_NON_POOLING", "POSTGRES_PRISMA_URL", "MY_DB"} {
 		if values[name] != "postgres://new" {
 			t.Errorf("%s = %q", name, values[name])
 		}

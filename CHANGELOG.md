@@ -27,6 +27,7 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ### Fixed
 
+- `capydb seed` also points `DATABASE_URL_UNPOOLED`, `POSTGRES_URL_NON_POOLING` and `POSTGRES_PRISMA_URL` at the target. A seed script that read the unpooled URL the Vercel and Netlify integrations push could otherwise load production from `.env` while seeding a preview.
 - **CI on Windows is green again.** `TestValuesAndRemoveKeys` asserted that `RemoveKeys` left an
   `.env` file at mode `0600`, but Windows has no POSIX mode bits and reports `0666` for every
   writable file, so the assertion could never hold there. The function's contract is to keep the

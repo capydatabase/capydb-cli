@@ -8,6 +8,10 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Changed
+
+- Go 1.27.4 (`go` directive and the `golang:1.27.4-alpine` build image); pgx 5.13.0, x/sync 0.25.0, x/text 0.44.0. No behaviour change.
+
 ### Added
 
 - **`capydb logs --errors`** folds the window's ERROR/FATAL/PANIC lines into one block per distinct

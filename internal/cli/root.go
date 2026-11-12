@@ -1348,9 +1348,9 @@ func selectRegion(regions []api.RegionDetail, ref string, nonInteractive bool) (
 				return region.ID, nil
 			}
 		}
-		// Not a listed id: sent as given. The control plane still accepts the
-		// deprecated region names (hel1 for eu-north-1) and rejects anything
-		// else with the list of valid ids, so it stays the one authority.
+		// Not a listed id: sent as given. The control plane rejects an unknown
+		// region with the list of valid ids, so it stays the one authority
+		// (the listing only names regions that have capacity right now).
 		return trimmed, nil
 	}
 

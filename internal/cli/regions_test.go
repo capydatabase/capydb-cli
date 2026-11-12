@@ -49,10 +49,10 @@ func TestSelectRegionMatchesIDsAndPassesOthersThrough(t *testing.T) {
 	if err != nil || got != "eu-north-1" {
 		t.Fatalf("selectRegion(listed) = %q, %v", got, err)
 	}
-	// A deprecated name is not listed; the control plane resolves it.
-	got, err = selectRegion(regions, "hel1", true)
-	if err != nil || got != "hel1" {
-		t.Fatalf("selectRegion(alias) = %q, %v", got, err)
+	// An unlisted value is sent as given; the control plane accepts or refuses it.
+	got, err = selectRegion(regions, "us-east-1", true)
+	if err != nil || got != "us-east-1" {
+		t.Fatalf("selectRegion(unlisted) = %q, %v", got, err)
 	}
 	got, err = selectRegion(regions, "", true)
 	if err != nil || got != "" {

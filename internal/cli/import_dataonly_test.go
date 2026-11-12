@@ -177,6 +177,53 @@ CREATE MATERIALIZED VIEW parent_count AS SELECT count(*) AS n FROM z_parents;
 	}
 }
 
+// TestDataOnlyImportSeesRowsHiddenByForcedRLS: the "target must be empty" check
+// has to count rows a FORCE ROW LEVEL SECURITY policy hides from the owner (the
+// capyrls default). Counting them through the policy saw an empty table, COPY
+// appended to it, and syncSequences rewound the sequences under the existing
+// rows (FG-2).
+func TestDataOnlyImportSeesRowsHiddenByForcedRLS(t *testing.T) {
+	sourceURL := liveDatabaseURL(t)
+	targetURL := liveTenantURL(t)
+	liveExec(t, sourceURL, "CREATE TABLE notes (id serial PRIMARY KEY, body text); INSERT INTO notes (body) VALUES ('from the source');")
+	liveExec(t, targetURL, `CREATE TABLE notes (id serial PRIMARY KEY, body text);
+INSERT INTO notes (body) VALUES ('already here'), ('and here');
+ALTER TABLE notes ENABLE ROW LEVEL SECURITY; ALTER TABLE notes FORCE ROW LEVEL SECURITY;
+CREATE POLICY own_rows ON notes USING (body = current_setting('app.owner', true));`)
+	schema := api.DatabaseSchema{Schemas: []api.SchemaNamespace{{Name: "public", Tables: []api.SchemaTable{
+		{Name: "notes", Kind: "table", Columns: []api.SchemaColumn{{Name: "id", Default: "nextval('notes_id_seq'::regclass)"}, {Name: "body", IsNullable: true}}},
+	}}}}
+	ctx := context.Background()
+	src, err := pgx.Connect(ctx, sourceURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = src.Close(ctx) }()
+	dst, err := pgx.Connect(ctx, targetURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = dst.Close(ctx) }()
+
+	if _, err := planDataOnlyImport(ctx, src, dst, schema); err == nil || !strings.Contains(err.Error(), "already has rows") {
+		t.Fatalf("plan error = %v, want the refusal for a table whose rows the policy hides", err)
+	}
+	// The check's NO FORCE was rolled back.
+	if rows := liveQueryRows(t, targetURL, "SELECT relforcerowsecurity AS forced FROM pg_class WHERE relname = 'notes'"); rows[0]["forced"] != true {
+		t.Fatalf("FORCE ROW LEVEL SECURITY = %v after the check, want it still on", rows[0]["forced"])
+	}
+
+	// An empty forced table still plans, with FORCE recorded for the load.
+	liveExec(t, targetURL, "ALTER TABLE notes NO FORCE ROW LEVEL SECURITY; TRUNCATE notes; ALTER TABLE notes FORCE ROW LEVEL SECURITY;")
+	plan, err := planDataOnlyImport(ctx, src, dst, schema)
+	if err != nil {
+		t.Fatalf("plan for an empty table: %v", err)
+	}
+	if len(plan.Tables) != 1 || !plan.Tables[0].ForceRLS {
+		t.Fatalf("plan tables = %+v, want notes with ForceRLS", plan.Tables)
+	}
+}
+
 func TestDataOnlyImportRollsBackOnFailure(t *testing.T) {
 	sourceURL := liveDatabaseURL(t)
 	targetURL := liveTenantURL(t)

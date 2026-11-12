@@ -208,8 +208,8 @@ func planDataOnlyImport(ctx context.Context, src, dst *pgx.Conn, schema api.Data
 				continue
 			}
 
-			var nonEmpty, forceRLS bool
-			if err := dst.QueryRow(ctx, "SELECT EXISTS (SELECT 1 FROM "+entry.qualified()+"), (SELECT relforcerowsecurity FROM pg_class WHERE oid = $1::regclass)", entry.qualified()).Scan(&nonEmpty, &forceRLS); err != nil {
+			nonEmpty, forceRLS, err := targetHasRows(ctx, dst, entry)
+			if err != nil {
 				return dataOnlyPlan{}, fmt.Errorf("inspect target %s: %w", entry.key(), err)
 			}
 			if nonEmpty {
@@ -234,6 +234,36 @@ func planDataOnlyImport(ctx context.Context, src, dst *pgx.Conn, schema api.Data
 		plan.Tables = append(plan.Tables, candidates[key])
 	}
 	return plan, nil
+}
+
+// targetHasRows reports whether a target table holds any row, and whether it
+// has FORCE ROW LEVEL SECURITY on. Under FORCE the table owner's own policies
+// apply to it, so a plain count can see an empty table where rows exist (a
+// capyrls-converted schema forces RLS everywhere) - the load would append to
+// them and syncSequences would rewind the sequences beneath them. For a forced
+// table the count therefore runs after NO FORCE ROW LEVEL SECURITY, the way the
+// load itself does, inside a transaction that is always rolled back.
+func targetHasRows(ctx context.Context, dst *pgx.Conn, table dataOnlyTable) (nonEmpty, forceRLS bool, err error) {
+	if err := dst.QueryRow(ctx, "SELECT relforcerowsecurity FROM pg_class WHERE oid = $1::regclass", table.qualified()).Scan(&forceRLS); err != nil {
+		return false, false, err
+	}
+	exists := "SELECT EXISTS (SELECT 1 FROM " + table.qualified() + ")"
+	if !forceRLS {
+		err := dst.QueryRow(ctx, exists).Scan(&nonEmpty)
+		return nonEmpty, false, err
+	}
+	tx, err := dst.Begin(ctx)
+	if err != nil {
+		return false, true, err
+	}
+	defer func() { _ = tx.Rollback(context.Background()) }()
+	if _, err := tx.Exec(ctx, "ALTER TABLE "+table.qualified()+" NO FORCE ROW LEVEL SECURITY"); err != nil {
+		return false, true, fmt.Errorf("lift FORCE ROW LEVEL SECURITY to count its rows: %w", err)
+	}
+	if err := tx.QueryRow(ctx, exists).Scan(&nonEmpty); err != nil {
+		return false, true, err
+	}
+	return nonEmpty, true, nil
 }
 
 // sourceRelation returns the source's columns and relkind for a relation, or

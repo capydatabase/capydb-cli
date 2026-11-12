@@ -27,6 +27,7 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ### Fixed
 
+- **`capydb import --data-only` sees rows hidden by FORCE ROW LEVEL SECURITY.** The "target must be empty" check counted rows through the table owner's own policies, so on a forced table (the capyrls default) it could find an empty table where rows existed; the load then appended to them and reset the sequences beneath them. On a forced table the check now counts after `NO FORCE ROW LEVEL SECURITY`, inside a transaction that is rolled back.
 - **`capydb seed` on the Vibe plan takes a backup before seeding production.** The seed always pinned a point-in-time restore point and printed `capydb restore --restore-point <id>` as the undo, but Vibe restores from backups only, so that restore was refused after the seed had already run. On Vibe the seed now takes a backup, waits for it, and pins the restore point to it; the printed undo adds `--allow-unverified` when the backup's restore verification did not finish. If the backup fails, nothing is seeded.
 - `capydb ephemeral create` no longer fails when the saved API key has been revoked or has expired: when the API refuses the key (401/403) the create is retried once without it, with a note on stderr, the way the MCP server already did.
 - `capydb seed` also points `DATABASE_URL_UNPOOLED`, `POSTGRES_URL_NON_POOLING` and `POSTGRES_PRISMA_URL` at the target. A seed script that read the unpooled URL the Vercel and Netlify integrations push could otherwise load production from `.env` while seeding a preview.

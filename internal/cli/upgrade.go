@@ -152,7 +152,7 @@ func (a *app) newUpgradeCommand() *cobra.Command {
 const majorUpgradeApprovalHelp = `Each step needs its own single-use approval from an organization admin: open the project's
 settings page in the dashboard, create an approval for the step, and pass it with --approval-token
 (or CAPYDB_APPROVAL_TOKEN). An API key cannot approve its own upgrade. The approval works once, for
-10 minutes. Self-serve major upgrades are available only where CapyDB has enabled them.`
+10 minutes.`
 
 func (a *app) newUpgradeMajorCommand() *cobra.Command {
 	var projectRef string
@@ -413,11 +413,10 @@ func writeMajorUpgradeStatus(out io.Writer, project api.Project, upgrade *api.Ma
 }
 
 // majorUpgradeError adds the likely reason to a refused major-upgrade step: a
-// 403 means self-serve upgrades are not enabled or the caller may not run
-// them, which the bare status does not say.
+// 403 means the caller may not run it, which the bare status does not say.
 func majorUpgradeError(action string, err error) error {
 	if apiErr, ok := errors.AsType[*api.APIError](err); ok && apiErr.StatusCode == http.StatusForbidden {
-		return authErrorf("%s: %v (self-serve major upgrades need CapyDB to have enabled them and an organization admin or manager key)", action, err)
+		return authErrorf("%s: %v (major upgrades need an organization admin or a manager key, and an approval for this step)", action, err)
 	}
 	return fmt.Errorf("%s: %w", action, err)
 }

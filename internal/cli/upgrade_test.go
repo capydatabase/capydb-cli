@@ -113,7 +113,7 @@ func TestUpgradeMajorExplainsA403(t *testing.T) {
 		},
 	})
 	_, err := runCommand(t, t.TempDir(), "upgrade", "confirm", "--project", "prj_1", "--confirm", "--approval-token", "apv", "--api-url", server.URL, "--api-key", "capy_test")
-	if err == nil || !strings.Contains(err.Error(), "need CapyDB to have enabled them") {
+	if err == nil || !strings.Contains(err.Error(), "need an organization admin or a manager key") {
 		t.Fatalf("403 error = %v", err)
 	}
 }

@@ -87,11 +87,7 @@ func writeAppRoleStatus(out io.Writer, status api.AppRoleStatus) {
 		_, _ = fmt.Fprintf(out, "Run `capydb env pull` to write %s and %s.\n", appURLVar, appPoolURLVar)
 		return
 	}
-	if status.Available {
-		_, _ = fmt.Fprintln(out, "Enable it with `capydb roles app enable`.")
-		return
-	}
-	_, _ = fmt.Fprintln(out, "The split role model is not offered for new opt-ins right now.")
+	_, _ = fmt.Fprintln(out, "Enable it with `capydb roles app enable`.")
 }
 
 func (a *app) newAppRoleEnableCommand() *cobra.Command {
@@ -115,7 +111,7 @@ func (a *app) newAppRoleEnableCommand() *cobra.Command {
 				return err
 			}
 			// The status says up front what enabling would otherwise answer
-			// with a bare 404 (not offered) or 409 (already there).
+			// with a bare 409 (already there).
 			status, err := client.GetAppRole(ctx, project.ID)
 			if err != nil {
 				return fmt.Errorf("get app role: %w", err)
@@ -127,10 +123,6 @@ func (a *app) newAppRoleEnableCommand() *cobra.Command {
 				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Project %s already has its runtime login (%s).\n", project.Name, firstNonEmpty(status.Username, "app_user"))
 				return nil
 			}
-			if !status.Available {
-				return notFoundErrorf("the split role model is not offered for new opt-ins right now; project %s was not changed", project.Name)
-			}
-
 			job, err := client.EnableAppRole(ctx, project.ID)
 			if err != nil {
 				return appRoleError("enable app role", err)
@@ -194,14 +186,13 @@ func (a *app) newAppRoleRotateCommand() *cobra.Command {
 	return command
 }
 
-// appRoleError names what a refused app-role call means: 404 is the platform
-// not offering the role (or, on rotate, a project without one), 409 a
-// conflicting job or state.
+// appRoleError names what a refused app-role call means: 404 is a project
+// without a runtime login (on rotate), 409 a conflicting job or state.
 func appRoleError(action string, err error) error {
 	if apiErr, ok := errors.AsType[*api.APIError](err); ok {
 		switch apiErr.StatusCode {
 		case http.StatusNotFound:
-			return notFoundErrorf("%s: %v (the split role model is not offered here, or the project has no runtime login - see `capydb roles app show`)", action, err)
+			return notFoundErrorf("%s: %v (the project has no runtime login - see `capydb roles app show`)", action, err)
 		case http.StatusConflict:
 			return fmt.Errorf("%s: %w (a role job may already be running; check `capydb jobs list`)", action, err)
 		}

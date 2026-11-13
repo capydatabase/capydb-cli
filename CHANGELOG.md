@@ -10,8 +10,27 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ### Changed
 
+- `capydb roles app` no longer says the split role model "is not offered": it is on for every
+  project, so `show` always offers `enable`, and `enable` no longer refuses up front. `upgrade major`
+  help and its 403 message no longer say self-serve upgrades must be enabled; a 403 now explains the
+  role and the per-step approval.
 - **`capydb env sync vercel|netlify` without a token re-pushes a connected project** through the stored token (what `capydb integrations sync` does) instead of asking for a token and reconnecting. Running it with a token still reconnects - replacing the stored token, and now also deleting the previous deploy hook (control plane change). The help points at `capydb integrations sync` for re-pushes. `--preview-branches` without a token is refused, since it changes the connection.
 - Go 1.27.4 (`go` directive and the `golang:1.27.4-alpine` build image); pgx 5.13.0, x/sync 0.25.0, x/text 0.44.0. No behaviour change.
+- **`capydb migrate codemod neon` no longer warns about `connection: { search_path }`.** CapyDB's
+  pooled endpoint (`:6432`) runs PgBouncer 1.26, which tracks `search_path` and applies the value a
+  postgres.js client sends at startup, where 1.25 refused the connection with `08P01`. The
+  codemod now treats it like `application_name`. `-c search_path=...` inside `options` is still
+  flagged: the pooler ignores `options` as a whole. Other per-connection GUCs keep their warnings.
+- **CI now runs the live-Postgres tests.** The seven tests that need a real database (`create
+  --template`, data-only and Supabase-dump imports, `seed`) skipped on every run because nothing
+  set `CAPYDB_CLI_TEST_DATABASE_URL`. A new `Test (live Postgres)` job starts a `postgres:17`
+  service, installs the matching 17 client tools, runs `./internal/cli/` against it, and fails if
+  any test in that run is skipped.
+- Go 1.27.3: `go` directive and the Docker build image (`golang:1.27.3-alpine`). Indirect
+  dependencies: `github.com/jackc/puddle/v2` v2.2.3, `golang.org/x/sync` v0.24.0,
+  `golang.org/x/text` v0.43.0. `go fix` modernizations (`strings.SplitSeq`/`FieldsSeq`,
+  `maps.Copy`). No behavior change. CI lints with golangci-lint v2.15.0 (was v2.13.2, which cannot
+  read Go 1.27.3 export data).
 
 ### Added
 
@@ -37,24 +56,6 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
   `.env` file at mode `0600`, but Windows has no POSIX mode bits and reports `0666` for every
   writable file, so the assertion could never hold there. The function's contract is to keep the
   file's existing mode; the test now checks exactly that (mode before == mode after) on every OS.
-
-### Changed
-
-- **`capydb migrate codemod neon` no longer warns about `connection: { search_path }`.** CapyDB's
-  pooled endpoint (`:6432`) runs PgBouncer 1.26, which tracks `search_path` and applies the value a
-  postgres.js client sends at startup, where 1.25 refused the connection with `08P01`. The
-  codemod now treats it like `application_name`. `-c search_path=...` inside `options` is still
-  flagged: the pooler ignores `options` as a whole. Other per-connection GUCs keep their warnings.
-- **CI now runs the live-Postgres tests.** The seven tests that need a real database (`create
-  --template`, data-only and Supabase-dump imports, `seed`) skipped on every run because nothing
-  set `CAPYDB_CLI_TEST_DATABASE_URL`. A new `Test (live Postgres)` job starts a `postgres:17`
-  service, installs the matching 17 client tools, runs `./internal/cli/` against it, and fails if
-  any test in that run is skipped.
-- Go 1.27.3: `go` directive and the Docker build image (`golang:1.27.3-alpine`). Indirect
-  dependencies: `github.com/jackc/puddle/v2` v2.2.3, `golang.org/x/sync` v0.24.0,
-  `golang.org/x/text` v0.43.0. `go fix` modernizations (`strings.SplitSeq`/`FieldsSeq`,
-  `maps.Copy`). No behavior change. CI lints with golangci-lint v2.15.0 (was v2.13.2, which cannot
-  read Go 1.27.3 export data).
 
 ## [2.1.0] - 2026-09-30
 

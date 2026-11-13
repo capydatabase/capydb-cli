@@ -143,13 +143,6 @@ func TestRolesAppEnable(t *testing.T) {
 	if err != nil || len(calls) != 0 || !strings.Contains(output, "already has its runtime login") {
 		t.Fatalf("already enabled: calls=%v err=%v\n%s", calls, err, output)
 	}
-
-	// Not offered: refused before the POST.
-	server = appRoleServer(t, map[string]any{"available": false, "enabled": false}, &calls)
-	_, err = runCommand(t, t.TempDir(), "roles", "app", "enable", "--project", "prj_1", "--api-url", server.URL, "--api-key", "capy_test")
-	if err == nil || len(calls) != 0 || !strings.Contains(err.Error(), "not offered") {
-		t.Fatalf("not offered: calls=%v err=%v", calls, err)
-	}
 }
 
 func TestRolesAppRotate(t *testing.T) {

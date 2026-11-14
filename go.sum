@@ -1,5 +1,5 @@
-github.com/capydatabase/capydbclient v1.15.0 h1:5ISsatesz9bzKigZf/FNMzJhj3vic91MBf7/Mj/WIGE=
-github.com/capydatabase/capydbclient v1.15.0/go.mod h1:/BZT7LBISOOarCghGa31Hdd/zXq4o9LBimnCPY2BgVM=
+github.com/capydatabase/capydbclient v1.16.0 h1:feqy2qgjG7opGc1ah+eCIgCZb07TwPojXoVSTE2aB1I=
+github.com/capydatabase/capydbclient v1.16.0/go.mod h1:TfXKiKx8x9p5flYZHR7EF/8BZRB+qioV/8WZ9Z3d0l0=
 github.com/capydatabase/capyrls v1.16.0 h1:qzdLBgjrN48hV7/E5CVh3FMuyz0b1081BR7IeKN484g=
 github.com/capydatabase/capyrls v1.16.0/go.mod h1:ucvZkZ5YJSUFnNdedEitnpn0UgBttVZyIwvn9ZYE4xw=
 github.com/cpuguy83/go-md2man/v2 v2.0.6/go.mod h1:oOW0eioCTA6cOiMLiUPZOpcVxMig6NIQQ7OS05n1F4g=

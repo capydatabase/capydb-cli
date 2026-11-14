@@ -8,8 +8,13 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-14
+
 ### Changed
 
+- `capydbclient` v1.16.0 (the Postgres 19 observability readings).
+- `capydb regions` and `--region` no longer describe `hel1` as an accepted name: the control plane
+  refuses it like any unknown region; use `eu-north-1`.
 - `capydb roles app` no longer says the split role model "is not offered": it is on for every
   project, so `show` always offers `enable`, and `enable` no longer refuses up front. `upgrade major`
   help and its 403 message no longer say self-serve upgrades must be enabled; a 403 now explains the
@@ -851,7 +856,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 - First release: project linking, `env pull`, preview databases, imports, logs, and studio.
 
-[Unreleased]: https://github.com/capydatabase/capydb-cli/compare/v2.1.0...HEAD
+[Unreleased]: https://github.com/capydatabase/capydb-cli/compare/v2.2.0...HEAD
+[2.2.0]: https://github.com/capydatabase/capydb-cli/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/capydatabase/capydb-cli/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/capydatabase/capydb-cli/compare/v1.8.0...v2.0.0
 [1.8.0]: https://github.com/capydatabase/capydb-cli/compare/v1.7.1...v1.8.0

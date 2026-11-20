@@ -482,8 +482,8 @@ func isJSLike(name string) bool {
 var supabaseAuthHelperPattern = regexp.MustCompile(`\bauth\.(uid|jwt|role|email)\s*\(`)
 
 // rawUUIDv7Pattern matches the two major-specific spellings of a time-sortable
-// UUID generator: Postgres 18's built-in uuidv7() and the pg_uuidv7
-// extension's uuid_generate_v7(), which is what 16/17 have. A capydb-qualified
+// UUID generator: the built-in uuidv7() of Postgres 18 and newer and the
+// pg_uuidv7 extension's uuid_generate_v7(), which is what 16/17 have. A capydb-qualified
 // call is excluded by the negative lookbehind stand-in below (Go's regexp has
 // no lookbehind, so the schema prefix is captured and checked by the caller).
 var rawUUIDv7Pattern = regexp.MustCompile(`(?i)([a-z0-9_]+\s*\.\s*)?\b(uuidv7|uuid_generate_v7)\s*\(`)
@@ -522,7 +522,7 @@ func lintSupabaseAuthHelpers(content []byte, rel string) []Finding {
 
 // lintRawUUIDv7 flags a schema pinned to one major's spelling of uuidv7.
 //
-// Postgres 18 ships uuidv7() in pg_catalog; 16 and 17 only get it from the
+// Postgres 18 and newer ship uuidv7() in pg_catalog; 16 and 17 only get it from the
 // pg_uuidv7 extension, which names it uuid_generate_v7(). Either raw name in a
 // column DEFAULT is a schema that breaks on the other major - and a CapyDB
 // major upgrade is a logical dump and restore, so the qualified name travels
@@ -542,8 +542,8 @@ func lintRawUUIDv7(content []byte, rel string) []Finding {
 		return []Finding{{
 			Rule: "uuidv7_not_portable", Severity: SeverityWarning,
 			File: rel, Line: lineOf(content, match[0]),
-			Message: "SQL calls uuidv7()/uuid_generate_v7() directly; the built-in exists only on Postgres 18 and the extension spelling only on 16/17, so this schema breaks on the other major",
-			Fix:     "call capydb.uuidv7() instead - it resolves to the built-in on 18 and to an equivalent on 16/17",
+			Message: "SQL calls uuidv7()/uuid_generate_v7() directly; the built-in exists only on Postgres 18 and newer and the extension spelling only on 16/17, so this schema breaks on the other major",
+			Fix:     "call capydb.uuidv7() instead - it resolves to the built-in on 18 and newer and to an equivalent on 16/17",
 		}}
 	}
 	return nil
@@ -553,7 +553,7 @@ func lintRawUUIDv7(content []byte, rel string) []Finding {
 //
 // Adding NOT NULL to a populated table takes ACCESS EXCLUSIVE and scans every
 // row before it returns; on a live table that is a write outage for the
-// duration. Postgres 18 allows the constraint to be added NOT VALID and
+// duration. Postgres 18 and newer allow the constraint to be added NOT VALID and
 // validated afterwards under a weaker lock, which turns the outage into two
 // cheap steps.
 func lintUnguardedSetNotNull(content []byte, rel string) []Finding {
@@ -566,7 +566,7 @@ func lintUnguardedSetNotNull(content []byte, rel string) []Finding {
 			Rule: "set_not_null_locks_table", Severity: SeverityWarning,
 			File: rel, Line: lineOf(content, loc[0]),
 			Message: "ALTER TABLE ... SET NOT NULL takes ACCESS EXCLUSIVE and scans the whole table, blocking writes until it finishes",
-			Fix:     "on Postgres 18, add the constraint NOT VALID first and run ALTER TABLE ... VALIDATE CONSTRAINT afterwards, which does not block writes",
+			Fix:     "on Postgres 18 and newer, add the constraint NOT VALID first and run ALTER TABLE ... VALIDATE CONSTRAINT afterwards, which does not block writes",
 		}}
 	}
 	return nil

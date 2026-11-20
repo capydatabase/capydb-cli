@@ -13,8 +13,8 @@ import (
 
 // postgresVersionFlagHelp is the --postgres-version description shared by
 // every command that creates a database. The control plane validates the
-// value; 19 is accepted only while CapyDB offers it as a beta.
-const postgresVersionFlagHelp = "Postgres major version: 16, 17, 18, or 19 while it is offered as a beta (see `capydb postgres-versions`)"
+// value against what it offers.
+const postgresVersionFlagHelp = "Postgres major version: 16, 17, 18 or 19 (see `capydb postgres-versions`)"
 
 func (a *app) newPostgresVersionsCommand() *cobra.Command {
 	return &cobra.Command{
@@ -22,12 +22,13 @@ func (a *app) newPostgresVersionsCommand() *cobra.Command {
 		Short: "List the Postgres versions new databases can be created on",
 		Long: "Lists the Postgres majors a new database can be created on, oldest first, with the " +
 			"release channel each is offered on:\n\n" +
-			"  previous  an older generally available major\n" +
-			"  stable    the default for new databases\n" +
+			"  previous  the oldest generally available major\n" +
+			"  stable    a proven generally available major; one of them is the default\n" +
 			"  current   the newest generally available major\n" +
-			"  beta      an upstream beta, offered for evaluation only: no uptime or durability\n" +
-			"            commitment, extensions may be missing, and the database may need\n" +
-			"            recreating instead of upgrading when the major is released\n\n" +
+			"  beta      an upstream pre-release, listed only while CapyDB offers one, for\n" +
+			"            evaluation only: no uptime or durability commitment, extensions may\n" +
+			"            be missing, and the database may need recreating instead of\n" +
+			"            upgrading when the major is released\n\n" +
 			"Pass the version to --postgres-version on `capydb create` or `capydb ephemeral create`.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -64,7 +65,8 @@ func yesNo(value bool) string {
 	return "no"
 }
 
-// writePostgresWarning prints a beta database's warning; the control plane
+// writePostgresWarning prints the warning of a database on a major that is
+// not production ready (the beta channel); the control plane
 // asks that it be shown wherever the database is shown.
 func writePostgresWarning(out io.Writer, warning string) {
 	if warning = strings.TrimSpace(warning); warning != "" {
@@ -73,7 +75,7 @@ func writePostgresWarning(out io.Writer, warning string) {
 }
 
 // postgresLabel renders a database's major with its release channel, e.g.
-// "18 (current)"; the channel is omitted when the control plane did not send
+// "19 (current)"; the channel is omitted when the control plane did not send
 // one.
 func postgresLabel(version, channel string) string {
 	version = firstNonEmpty(version, "-")

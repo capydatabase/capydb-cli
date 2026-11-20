@@ -63,7 +63,7 @@ The CLI will:
 - `capydb orgs list` / `capydb orgs switch <org-id|slug>` (the CLI stores credentials per organization; switch the active one)
 - `capydb projects list`
 - `capydb regions` (region ids, display names and locations)
-- `capydb postgres-versions` (the Postgres majors new databases can use, with each one's channel: previous, stable - the default - current, beta)
+- `capydb postgres-versions` (the Postgres majors new databases can use, with each one's channel - previous, stable, current, or beta while an upstream pre-release is on offer - and which one is the default)
 - `capydb link`
 - `capydb unlink`
 - `capydb env pull` (also writes `DATABASE_APP_URL`/`DATABASE_APP_POOL_URL` once the project has its runtime login - see `capydb roles app`)
@@ -95,7 +95,7 @@ The CLI will:
 - `capydb api-keys list|create|revoke` (`create` requires `--name` and `--scopes`; `--project` makes the key project-scoped; the plaintext key is shown exactly once)
 - `capydb webhooks list|create|delete|rotate-secret|deliveries` (organization webhook endpoints; signing secrets are shown exactly once)
 - `capydb kv status|create|credentials|rotate-token|flush|delete [--project <ref>]` (the project's K/V store - key-value and rate limiting. `create` and `rotate-token` are the only chance to capture the token - only its hash is stored - and accept `--write-env` to merge `CAPYKV_REST_URL`, `CAPYKV_REST_TOKEN` and `CAPYKV_REDIS_URL` (the RESP URL, which carries the token as its password) into the project's env file, in which case the token and the RESP URL are written there instead of printed; `credentials` cannot show the token, because only its hash is stored)
-- `capydb create` (create a project and link the current directory; `--postgres-version 16|17|18|19` - 19 while offered as a beta, `--environment production|non_production`, `--template drizzle-starter|auth-starter`)
+- `capydb create` (create a project and link the current directory; `--postgres-version 16|17|18|19`, `--environment production|non_production`, `--template drizzle-starter|auth-starter`)
 - `capydb seed [file.sql] [--run "<command>"] [--preview <id>]` (load seed data; production needs `--confirm-production` and gets a restore point first)
 - `capydb db lint [--exit-code] [--preview <id>]` (missing primary keys, unindexed foreign keys, duplicate/unused/redundant indexes, bloat; runs server-side, so a `schema:read` key is enough)
 - `capydb projects list|always-on|set-environment|retry|delete` (production projects stay awake by default; `always-on` and `set-environment` change the sleep policy; `retry <project>` re-runs a failed provisioning)

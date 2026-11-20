@@ -15,7 +15,7 @@ import (
 // backend service.SupportedPostgresVersions.
 const (
 	MinSupportedMajor = 16
-	MaxSupportedMajor = 18
+	MaxSupportedMajor = 19
 )
 
 var versionPattern = regexp.MustCompile(`(\d+)(?:\.(\d+))?`)

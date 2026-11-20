@@ -1177,8 +1177,9 @@ func (a *app) printCreateJSONSummary(cmd *cobra.Command, detection project.Detec
 		ProjectID   string   `json:"project_id"`
 		ProjectName string   `json:"project_name"`
 		ProjectSlug string   `json:"project_slug,omitempty"`
-		// The database's major, its release channel, and - for a beta major
-		// only - what CapyDB does not guarantee for it.
+		// The database's major, its release channel, and - only for a major
+		// that is not production ready (the beta channel) - what CapyDB does
+		// not guarantee for it.
 		PostgresVersion string `json:"postgres_version,omitempty"`
 		PostgresChannel string `json:"postgres_channel,omitempty"`
 		PostgresWarning string `json:"postgres_warning,omitempty"`

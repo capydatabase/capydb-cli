@@ -8,6 +8,17 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+### Changed
+
+- **PostgreSQL 19 is generally available on CapyDB.** `--postgres-version` help and the README no
+  longer call 19 a beta, and `capydb postgres-versions` describes the channels as they now are:
+  `previous` the oldest GA major, `stable` the proven GA majors (17, the default, and 18),
+  `current` the newest (19), `beta` an upstream pre-release, listed only while one is on offer.
+- `capydb create --source-url` matches a Postgres 19 source instead of refusing it as newer than
+  every major CapyDB offers.
+- `capydb doctor`'s `uuidv7_not_portable` and `set_not_null_locks_table` findings say the built-in
+  `uuidv7()` and `NOT NULL ... NOT VALID` exist on Postgres 18 and newer, not on 18 only.
+
 ## [2.2.0] - 2026-11-14
 
 ### Changed

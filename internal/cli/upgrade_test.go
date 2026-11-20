@@ -120,13 +120,13 @@ func TestUpgradeMajorExplainsA403(t *testing.T) {
 
 func TestUpgradeStatus(t *testing.T) {
 	upgrade := map[string]any{"upgrade": nil}
-	server := newFakeControlPlane(t, map[string]any{"postgres_version": "18", "postgres_channel": "current"}, map[string]http.HandlerFunc{
+	server := newFakeControlPlane(t, map[string]any{"postgres_version": "18", "postgres_channel": "stable"}, map[string]http.HandlerFunc{
 		"GET /v1/projects/prj_1/upgrade/major": func(w http.ResponseWriter, r *http.Request) { writeJSON(t, w, upgrade) },
 	})
 	args := []string{"upgrade", "status", "--project", "prj_1", "--api-url", server.URL, "--api-key", "capy_test"}
 
 	output, err := runCommand(t, t.TempDir(), args...)
-	if err != nil || !strings.Contains(output, "No major upgrade in flight for project demo (Postgres 18 (current))") {
+	if err != nil || !strings.Contains(output, "No major upgrade in flight for project demo (Postgres 18 (stable))") {
 		t.Fatalf("status without upgrade: %v\n%s", err, output)
 	}
 

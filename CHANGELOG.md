@@ -8,8 +8,11 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-11-20
+
 ### Changed
 
+- `jackc/puddle` 2.2.4 (indirect).
 - **PostgreSQL 19 is generally available on CapyDB.** `--postgres-version` help and the README no
   longer call 19 a beta, and `capydb postgres-versions` describes the channels as they now are:
   `previous` the oldest GA major, `stable` the proven GA majors (17, the default, and 18),
@@ -867,7 +870,8 @@ Releases are cut with GoReleaser from a git tag; entries under **Unreleased** sh
 
 - First release: project linking, `env pull`, preview databases, imports, logs, and studio.
 
-[Unreleased]: https://github.com/capydatabase/capydb-cli/compare/v2.2.0...HEAD
+[Unreleased]: https://github.com/capydatabase/capydb-cli/compare/v2.2.1...HEAD
+[2.2.1]: https://github.com/capydatabase/capydb-cli/compare/v2.2.0...v2.2.1
 [2.2.0]: https://github.com/capydatabase/capydb-cli/compare/v2.1.0...v2.2.0
 [2.1.0]: https://github.com/capydatabase/capydb-cli/compare/v2.0.0...v2.1.0
 [2.0.0]: https://github.com/capydatabase/capydb-cli/compare/v1.8.0...v2.0.0
